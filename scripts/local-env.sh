@@ -82,7 +82,7 @@ generate() {
     local backup
     backup="${ENV_FILE}.cloud-backup"
     if [[ ! -e "$backup" ]]; then
-      cp --preserve=mode "$ENV_FILE" "$backup"
+      cp "$ENV_FILE" "$backup"
       chmod 600 "$backup"
       printf 'Backup do ambiente anterior: %s\n' "$backup"
     fi
