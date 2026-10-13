@@ -23,6 +23,7 @@ import { Composer, type ComposerHandle } from "./Composer";
 import { ConversationHeader } from "./ConversationHeader";
 import { RetentionNotice } from "./RetentionNotice";
 import { CRMSidePanel } from "./CRMSidePanel";
+import { QuickRepliesPanel } from "./QuickRepliesPanel";
 import type { Message as ConversationMensagem } from "@/lib/types/messaging";
 import { InboxKeyboardShortcuts } from "./InboxKeyboardShortcuts";
 
@@ -210,6 +211,7 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
   const [helpOpen, setHelpOpen] = useState(false);
   /** A ficha do contato como painel deslizante — só existe abaixo do `xl`. */
   const [fichaAberta, setFichaAberta] = useState(false);
+  const [respostasAbertas, setRespostasAbertas] = useState(false);
   /**
    * A busca dentro da conversa (#1793) pertence à CONVERSA em que foi aberta.
    * Guardar o id junto fecha a busca em qualquer troca — clique, atalho j/k,
@@ -791,6 +793,7 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
               initialDraft={
                 rascunhoVivo?.leitura.estado === "sugerido" ? rascunhoVivo.leitura.texto : ""
               }
+              onOpenQuickReplies={() => setRespostasAbertas(true)}
             />
           </>
         ) : selectionNotFound ? (
@@ -809,6 +812,21 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
       <div className="hidden h-full min-h-0 min-w-0 xl:block">
         <CRMSidePanel conversation={selectedConversation} />
       </div>
+
+      {respostasAbertas && selectedConversation?.contacts?.id && (
+        <div className="absolute inset-y-0 right-0 z-40 w-[min(26rem,100%)] shadow-2xl">
+          <QuickRepliesPanel
+            key={selectedConversation.id}
+            conversationId={selectedConversation.id}
+            contactId={selectedConversation.contacts.id}
+            contactName={selectedConversation.contacts.name}
+            contactDisplayName={selectedConversation.contacts.display_name}
+            status={selectedConversation.status}
+            tags={selectedConversation.tags ?? []}
+            onClose={() => setRespostasAbertas(false)}
+          />
+        </div>
+      )}
 
       {/*
         AS DUAS DIVISÓRIAS (#2579) — só a partir do `md`, quando as colunas

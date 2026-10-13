@@ -1,0 +1,25 @@
+{
+  "feature": "respostas-rapidas-em-scripts",
+  "entrypoints": [
+    "components/inbox/QuickRepliesPanel.tsx",
+    "app/app/templates/_components/TemplateScriptDialog.tsx"
+  ],
+  "write_paths": [
+    "POST /api/v1/message-templates/scripts",
+    "PATCH /api/v1/message-templates/scripts/:id",
+    "POST /api/v1/message-template-executions",
+    "PATCH /api/v1/message-template-executions/:id/steps/:stepId"
+  ],
+  "reused_effects": [
+    "POST /api/v1/messages",
+    "POST /api/v1/conversations/:id/media",
+    "PATCH /api/v1/conversations/:id",
+    "POST /api/v1/leads/bulk",
+    "POST /api/v1/leads"
+  ],
+  "authority": "A pessoa revisa uma cópia temporária e confirma explicitamente; a execução fica presa à conversa e ao usuário.",
+  "idempotency": "Cada passo congelado recebe UUID próprio; envios e criação CRM reutilizam esse UUID.",
+  "storage": "whatsapp-media privado sob <organization_id>/templates/<template_id>/, limite de 50MB.",
+  "tenant_boundary": "organization_id obrigatório, filtros explícitos nas rotas e RLS em todas as tabelas novas.",
+  "compatibility": "Cada resposta antiga de texto, foto ou vídeo é migrada para um roteiro de um passo."
+}

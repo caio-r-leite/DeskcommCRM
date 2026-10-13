@@ -79,7 +79,7 @@ export function TemplateFormDialog({ open, onOpenChange, canShare, template }: P
     setBody(template?.body ?? "");
     setShortcut(template?.shortcut ?? "");
     setShared(template ? template.owner_user_id === null : false);
-    setKind(template?.kind ?? "text");
+    setKind(template?.kind === "image" || template?.kind === "video" ? template.kind : "text");
     setFile(null);
   }, [open, template]);
 

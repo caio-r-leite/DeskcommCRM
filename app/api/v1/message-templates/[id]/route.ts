@@ -70,6 +70,19 @@ export async function PATCH(req: NextRequest, { params }: RouteParams): Promise<
     .select(COLS)
     .single();
   if (error || !data) return fail("not_found", t("Template não encontrado."), 404, { requestId });
+  if (data.kind !== "script") {
+    const { error: stepError } = await supabase
+      .from("message_template_steps")
+      .update({
+        body: data.body,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("template_id", data.id)
+      .eq("position", 0)
+      .eq("organization_id", org.orgId);
+    if (stepError)
+      return fail("internal_error", t("Erro ao atualizar passo do template."), 500, { requestId });
+  }
 
   void audit({
     action: "template.updated",
@@ -95,6 +108,12 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams): Promis
   const { id } = await params;
 
   const supabase = await createClient();
+  const { data: stepMedia } = await supabase
+    .from("message_template_steps")
+    .select("media_storage_path")
+    .eq("template_id", id)
+    .eq("organization_id", org.orgId)
+    .not("media_storage_path", "is", null);
   // .select() confirma que a linha existia E era visível/apagável pela RLS.
   // Sem isso, um DELETE barrado pela RLS afeta 0 linhas mas ainda retornaria
   // 204 + audit falso (mutação que não ocorreu). Espelha a semântica do PATCH.
@@ -108,14 +127,16 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams): Promis
   if (error) return fail("internal_error", "Erro ao excluir template.", 500, { requestId });
   if (!deleted) return fail("not_found", t("Template não encontrado."), 404, { requestId });
 
-  if (deleted.media_storage_path) {
-    if (isTemplateMediaPathOwnedBy(deleted.media_storage_path, org.orgId)) {
-      const { error: storageError } = await createAdminClient()
-        .storage.from("whatsapp-media")
-        .remove([deleted.media_storage_path]);
-      if (storageError) {
-        console.error("[message-templates.delete] media cleanup failed", storageError.message);
-      }
+  const mediaPaths = [
+    deleted.media_storage_path,
+    ...(stepMedia ?? []).map((step) => step.media_storage_path),
+  ].filter((path): path is string => !!path && isTemplateMediaPathOwnedBy(path, org.orgId));
+  if (mediaPaths.length) {
+    const { error: storageError } = await createAdminClient()
+      .storage.from("whatsapp-media")
+      .remove(Array.from(new Set(mediaPaths)));
+    if (storageError) {
+      console.error("[message-templates.delete] media cleanup failed", storageError.message);
     }
   }
 

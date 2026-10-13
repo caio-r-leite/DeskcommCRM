@@ -21,7 +21,7 @@ import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 const COLS =
-  "id, organization_id, owner_user_id, kind, title, body, shortcut, media_storage_path, media_mime, media_size_bytes, media_filename, created_by_user_id, created_at, updated_at";
+  "id, organization_id, owner_user_id, kind, title, body, shortcut, category_id, usage_count, last_used_at, media_storage_path, media_mime, media_size_bytes, media_filename, created_by_user_id, created_at, updated_at";
 /** Tag do endpoint no recibo de idempotência. Muda de rota muda de recibo. */
 const ENDPOINT = "/api/v1/message-templates";
 
@@ -39,7 +39,43 @@ export async function GET(_req: NextRequest): Promise<Response> {
     .eq("organization_id", org.orgId)
     .order("updated_at", { ascending: false });
   if (error) return fail("internal_error", "Erro ao listar templates.", 500, { requestId });
-  return ok(data ?? [], { requestId });
+  const ids = (data ?? []).map((template) => template.id);
+  const [{ data: categories, error: categoriesError }, { data: steps, error: stepsError }] =
+    await Promise.all([
+      supabase
+        .from("message_template_categories")
+        .select("id, name, color")
+        .eq("organization_id", org.orgId)
+        .order("name"),
+      ids.length
+        ? supabase
+            .from("message_template_steps")
+            .select(
+              "id, template_id, position, action_type, body, wait_seconds, media_mime, media_size_bytes, media_filename, action_config",
+            )
+            .eq("organization_id", org.orgId)
+            .in("template_id", ids)
+            .order("position")
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+  if (categoriesError || stepsError) {
+    return fail("internal_error", "Erro ao listar passos dos templates.", 500, { requestId });
+  }
+  const categoryById = new Map((categories ?? []).map((category) => [category.id, category]));
+  const stepsByTemplate = new Map<string, typeof steps>();
+  for (const step of steps ?? []) {
+    const list = stepsByTemplate.get(step.template_id) ?? [];
+    list.push(step);
+    stepsByTemplate.set(step.template_id, list);
+  }
+  return ok(
+    (data ?? []).map((template) => ({
+      ...template,
+      category: template.category_id ? (categoryById.get(template.category_id) ?? null) : null,
+      steps: stepsByTemplate.get(template.id) ?? [],
+    })),
+    { requestId },
+  );
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
@@ -97,6 +133,21 @@ export async function POST(req: NextRequest): Promise<Response> {
       .select(COLS)
       .single();
     if (error || !data) throw new Error("Erro ao criar template.");
+    const { error: stepError } = await supabase.from("message_template_steps").insert({
+      organization_id: org.orgId,
+      template_id: data.id,
+      position: 0,
+      action_type: "text",
+      body,
+    });
+    if (stepError) {
+      await supabase
+        .from("message_templates")
+        .delete()
+        .eq("id", data.id)
+        .eq("organization_id", org.orgId);
+      throw new Error("Erro ao criar passo do template.");
+    }
 
     void audit({
       action: "template.created",

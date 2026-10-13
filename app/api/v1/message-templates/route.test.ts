@@ -45,6 +45,7 @@ type Linha = Record<string, unknown>;
 /** Fake stateful das duas tabelas que a rota toca. */
 function banco() {
   const templates: Linha[] = [];
+  const steps: Linha[] = [];
   const recibos: Linha[] = [];
   let seq = 0;
 
@@ -60,6 +61,14 @@ function banco() {
             },
           }),
         }),
+      };
+    }
+    if (tabela === "message_template_steps") {
+      return {
+        insert: async (linha: Linha) => {
+          steps.push(linha);
+          return { error: null };
+        },
       };
     }
     // idempotency_keys — a mesma cadeia que o helper usa: leitura, reserva
@@ -112,7 +121,7 @@ function banco() {
     return builder;
   });
 
-  return { templates, recibos };
+  return { templates, steps, recibos };
 }
 
 function req(corpo: unknown, chave?: string) {
@@ -147,6 +156,7 @@ describe("POST /api/v1/message-templates — idempotência", () => {
     expect(primeira.status).toBe(201);
     expect(segunda.status).toBe(201);
     expect(db.templates).toHaveLength(1);
+    expect(db.steps).toHaveLength(1);
     expect((await primeira.json()).data.id).toBe((await segunda.json()).data.id);
     expect(h.audit).toHaveBeenCalledTimes(1);
     expect(db.recibos).toHaveLength(1);
@@ -161,6 +171,7 @@ describe("POST /api/v1/message-templates — idempotência", () => {
     expect(conflito.status).toBe(409);
     expect((await conflito.json()).error.code).toBe("idempotency_conflict");
     expect(db.templates).toHaveLength(1);
+    expect(db.steps).toHaveLength(1);
     expect(db.recibos).toHaveLength(1);
   });
 
@@ -171,6 +182,7 @@ describe("POST /api/v1/message-templates — idempotência", () => {
 
     expect(resposta.status).toBe(201);
     expect(db.templates).toHaveLength(1);
+    expect(db.steps).toHaveLength(1);
     expect(db.recibos).toHaveLength(0);
   });
 

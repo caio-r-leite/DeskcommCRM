@@ -115,6 +115,26 @@ export async function POST(req: NextRequest): Promise<Response> {
     await admin.storage.from("whatsapp-media").remove([storagePath]);
     return fail("internal_error", t("Erro ao criar template."), 500, { requestId });
   }
+  const { error: stepError } = await supabase.from("message_template_steps").insert({
+    organization_id: org.orgId,
+    template_id: data.id,
+    position: 0,
+    action_type: parsed.data.kind,
+    body: parsed.data.body,
+    media_storage_path: storagePath,
+    media_mime: mime,
+    media_size_bytes: buffer.length,
+    media_filename: filename,
+  });
+  if (stepError) {
+    await supabase
+      .from("message_templates")
+      .delete()
+      .eq("id", data.id)
+      .eq("organization_id", org.orgId);
+    await admin.storage.from("whatsapp-media").remove([storagePath]);
+    return fail("internal_error", t("Erro ao criar passo do template."), 500, { requestId });
+  }
 
   void audit({
     action: "template.created",

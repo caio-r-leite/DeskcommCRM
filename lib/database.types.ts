@@ -7626,13 +7626,39 @@ export type Database = {
           },
         ]
       }
+      message_template_categories: {
+        Row: { id: string; organization_id: string; name: string; color: string; created_by_user_id: string | null; created_at: string; updated_at: string }
+        Insert: { id?: string; organization_id: string; name: string; color?: string; created_by_user_id?: string | null; created_at?: string; updated_at?: string }
+        Update: { id?: string; organization_id?: string; name?: string; color?: string; created_by_user_id?: string | null; created_at?: string; updated_at?: string }
+        Relationships: []
+      }
+      message_template_execution_steps: {
+        Row: { id: string; organization_id: string; execution_id: string; source_step_id: string | null; position: number; action_type: string; payload: Json; status: string; idempotency_key: string; result: Json | null; error_message: string | null; started_at: string | null; finished_at: string | null }
+        Insert: { id?: string; organization_id: string; execution_id: string; source_step_id?: string | null; position: number; action_type: string; payload: Json; status?: string; idempotency_key?: string; result?: Json | null; error_message?: string | null; started_at?: string | null; finished_at?: string | null }
+        Update: { status?: string; result?: Json | null; error_message?: string | null; started_at?: string | null; finished_at?: string | null }
+        Relationships: []
+      }
+      message_template_executions: {
+        Row: { id: string; organization_id: string; template_id: string | null; conversation_id: string; contact_id: string; started_by_user_id: string; template_title: string; status: string; current_position: number; total_steps: number; error_message: string | null; confirmed_at: string | null; started_at: string | null; finished_at: string | null; created_at: string; updated_at: string }
+        Insert: { id?: string; organization_id: string; template_id?: string | null; conversation_id: string; contact_id: string; started_by_user_id: string; template_title: string; status?: string; current_position?: number; total_steps: number; error_message?: string | null; confirmed_at?: string | null; started_at?: string | null; finished_at?: string | null; created_at?: string; updated_at?: string }
+        Update: { status?: string; current_position?: number; error_message?: string | null; confirmed_at?: string | null; started_at?: string | null; finished_at?: string | null; updated_at?: string }
+        Relationships: []
+      }
+      message_template_steps: {
+        Row: { id: string; organization_id: string; template_id: string; position: number; action_type: string; body: string; wait_seconds: number; media_storage_path: string | null; media_mime: string | null; media_size_bytes: number | null; media_filename: string | null; action_config: Json; created_at: string; updated_at: string }
+        Insert: { id?: string; organization_id: string; template_id: string; position: number; action_type: string; body?: string; wait_seconds?: number; media_storage_path?: string | null; media_mime?: string | null; media_size_bytes?: number | null; media_filename?: string | null; action_config?: Json; created_at?: string; updated_at?: string }
+        Update: { position?: number; action_type?: string; body?: string; wait_seconds?: number; media_storage_path?: string | null; media_mime?: string | null; media_size_bytes?: number | null; media_filename?: string | null; action_config?: Json; updated_at?: string }
+        Relationships: []
+      }
       message_templates: {
         Row: {
           body: string
+          category_id: string | null
           created_at: string
           created_by_user_id: string | null
           id: string
           kind: string
+          last_used_at: string | null
           media_filename: string | null
           media_mime: string | null
           media_size_bytes: number | null
@@ -7641,14 +7667,17 @@ export type Database = {
           owner_user_id: string | null
           shortcut: string | null
           title: string
+          usage_count: number
           updated_at: string
         }
         Insert: {
           body: string
+          category_id?: string | null
           created_at?: string
           created_by_user_id?: string | null
           id?: string
           kind?: string
+          last_used_at?: string | null
           media_filename?: string | null
           media_mime?: string | null
           media_size_bytes?: number | null
@@ -7657,14 +7686,17 @@ export type Database = {
           owner_user_id?: string | null
           shortcut?: string | null
           title: string
+          usage_count?: number
           updated_at?: string
         }
         Update: {
           body?: string
+          category_id?: string | null
           created_at?: string
           created_by_user_id?: string | null
           id?: string
           kind?: string
+          last_used_at?: string | null
           media_filename?: string | null
           media_mime?: string | null
           media_size_bytes?: number | null
@@ -7673,6 +7705,7 @@ export type Database = {
           owner_user_id?: string | null
           shortcut?: string | null
           title?: string
+          usage_count?: number
           updated_at?: string
         }
         Relationships: [

@@ -25,6 +25,7 @@ import { apiClient } from "@/lib/api/client";
 import { showApiError } from "@/components/feedback/ApiErrorToast";
 import { useMessageTemplates, type MessageTemplate } from "@/hooks/inbox/useMessageTemplates";
 import { TemplateFormDialog } from "./TemplateFormDialog";
+import { TemplateScriptDialog } from "./TemplateScriptDialog";
 
 const TEMPLATES_KEY = ["message-templates"];
 
@@ -44,6 +45,8 @@ export function TemplatesClient({ canShare, currentUserId }: Props) {
   });
   const [formOpen, setFormOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<MessageTemplate | null>(null);
+  const [scriptOpen, setScriptOpen] = React.useState(false);
+  const [editingScript, setEditingScript] = React.useState<MessageTemplate | null>(null);
   // Deep link: `/app/templates?modelo=<id>` abre aquele modelo. É o link que a
   // integração devolve ("use o modelo X") e que a tela não tinha — sem ele, quem
   // recebe a mensagem cai na lista e tem de caçar de qual texto se falava.
@@ -71,6 +74,11 @@ export function TemplatesClient({ canShare, currentUserId }: Props) {
     // Um agent que recebe o link de um compartilhado fica na lista, onde o
     // modelo está visível: abrir o form ali seria um Salvar que a RLS recusa.
     if (!canModify(alvo)) return;
+    if (alvo.kind === "script") {
+      setEditingScript(alvo);
+      setScriptOpen(true);
+      return;
+    }
     setEditing(alvo);
     setFormOpen(true);
   }, [abertoPelaUrl, idDoModelo, templates, canModify]);
@@ -80,6 +88,11 @@ export function TemplatesClient({ canShare, currentUserId }: Props) {
     setFormOpen(true);
   };
   const openEdit = (template: MessageTemplate) => {
+    if (template.kind === "script") {
+      setEditingScript(template);
+      setScriptOpen(true);
+      return;
+    }
     setEditing(template);
     setFormOpen(true);
   };
@@ -95,7 +108,18 @@ export function TemplatesClient({ canShare, currentUserId }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="flex sm:justify-end">
+      <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => {
+            setEditingScript(null);
+            setScriptOpen(true);
+          }}
+          className="w-full sm:w-auto"
+        >
+          <Plus /> {t("Novo roteiro")}
+        </Button>
         <Button type="button" onClick={openNew} className="w-full sm:w-auto">
           <Plus /> {t("Novo template")}
         </Button>
@@ -183,6 +207,12 @@ export function TemplatesClient({ canShare, currentUserId }: Props) {
         onOpenChange={setFormOpen}
         canShare={canShare}
         template={editing}
+      />
+      <TemplateScriptDialog
+        open={scriptOpen}
+        onOpenChange={setScriptOpen}
+        canShare={canShare}
+        template={editingScript}
       />
     </div>
   );

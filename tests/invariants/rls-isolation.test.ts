@@ -120,6 +120,11 @@ beforeAll(() => {
       v_empresa uuid;
       v_pessoa uuid;
       v_lote uuid;
+      v_user uuid;
+      v_template_category uuid;
+      v_template uuid;
+      v_template_step uuid;
+      v_template_execution uuid;
     begin
       foreach v_org in array array['${ORG_A}'::uuid, '${ORG_B}'::uuid] loop
         select id into v_sess from public.channel_sessions where organization_id = v_org limit 1;
@@ -137,6 +142,28 @@ beforeAll(() => {
           insert into public.conversations (organization_id, contact_id, channel_session_id)
             values (v_org, v_contact, v_sess) returning id into v_conv;
         end if;
+
+        -- customização 9002: a resposta cadastrada e o snapshot da execução
+        -- carregam texto/mídia/ações do atendimento; os quatro lados precisam
+        -- provar a cerca, não apenas declarar RLS no catálogo.
+        select user_id into v_user from public.user_organizations where organization_id = v_org limit 1;
+        insert into public.message_template_categories (organization_id, name, created_by_user_id)
+          values (v_org, 'RLS Invariant Category', v_user)
+          on conflict (organization_id, name) do update set name = excluded.name
+          returning id into v_template_category;
+        insert into public.message_templates (organization_id, owner_user_id, title, body, kind, category_id, created_by_user_id)
+          values (v_org, null, 'RLS Invariant Script', '', 'script', v_template_category, v_user)
+          returning id into v_template;
+        insert into public.message_template_steps (organization_id, template_id, position, action_type, body)
+          values (v_org, v_template, 0, 'text', 'RLS invariant private quick reply')
+          returning id into v_template_step;
+        insert into public.message_template_executions
+          (organization_id, template_id, conversation_id, contact_id, started_by_user_id, template_title, status, total_steps)
+          values (v_org, v_template, v_conv, v_contact, v_user, 'RLS Invariant Script', 'running', 1)
+          returning id into v_template_execution;
+        insert into public.message_template_execution_steps
+          (organization_id, execution_id, source_step_id, position, action_type, payload)
+          values (v_org, v_template_execution, v_template_step, 0, 'text', '{"body":"RLS invariant snapshot"}'::jsonb);
 
         if not exists (select 1 from public.messages where organization_id = v_org) then
           insert into public.messages (organization_id, conversation_id, channel_session_id, contact_id, type, direction, body)
@@ -595,6 +622,10 @@ beforeAll(() => {
  * cabeçalho do caso de `contact_field_proposals` abaixo.
  */
 export const TABLES = [
+  "message_template_categories",
+  "message_template_steps",
+  "message_template_executions",
+  "message_template_execution_steps",
   "conversations",
   "messages",
   "contacts",
@@ -773,18 +804,28 @@ describe("RLS tenant isolation (fn_user_org_ids pattern)", () => {
   }
 
   it("ai_reply_drafts: org B lê sua sugestão e não lê a de A (direção inversa)", () => {
-    expect(countAs(USER_B,
-      `select count(*) from public.ai_reply_drafts where organization_id = '${ORG_B}';`,
-    )).toBeGreaterThanOrEqual(1);
-    expect(countAs(USER_B,
-      `select count(*) from public.ai_reply_drafts where organization_id = '${ORG_A}';`,
-    )).toBe(0);
+    expect(
+      countAs(
+        USER_B,
+        `select count(*) from public.ai_reply_drafts where organization_id = '${ORG_B}';`,
+      ),
+    ).toBeGreaterThanOrEqual(1);
+    expect(
+      countAs(
+        USER_B,
+        `select count(*) from public.ai_reply_drafts where organization_id = '${ORG_A}';`,
+      ),
+    ).toBe(0);
   });
 
   it("ai_reply_drafts: os dois tenants têm linhas antes de testar as cercas", () => {
-    expect(Number(sql(
-      `select count(distinct organization_id) from public.ai_reply_drafts where organization_id in ('${ORG_A}','${ORG_B}');`,
-    ))).toBe(2);
+    expect(
+      Number(
+        sql(
+          `select count(distinct organization_id) from public.ai_reply_drafts where organization_id in ('${ORG_A}','${ORG_B}');`,
+        ),
+      ),
+    ).toBe(2);
   });
 
   it("superuser sees both orgs (seed sanity: cross-tenant rows really exist)", () => {

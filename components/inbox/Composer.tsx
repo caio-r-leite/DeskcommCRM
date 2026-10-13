@@ -115,6 +115,8 @@ interface Props {
    * `draft_id` que o consumo usa depois do clique.
    */
   rascunho?: AvisoDeRascunho | null;
+  /** Abre o painel completo de respostas rápidas; o slash-menu segue compacto. */
+  onOpenQuickReplies?: () => void;
 }
 
 export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
@@ -133,6 +135,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
     respondendo,
     onCancelarResposta,
     rascunho = null,
+    onOpenQuickReplies,
   },
   ref,
 ) {
@@ -598,6 +601,11 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
               aria-label={t("Respostas rápidas")}
               title={t("Respostas rápidas")}
               onClick={() => {
+                if (onOpenQuickReplies) {
+                  onOpenQuickReplies();
+                  setQuickMenuOpen(false);
+                  return;
+                }
                 setQuickMenuOpen((open) => !open);
                 setMenuDismissed(false);
               }}
