@@ -20,7 +20,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Plus, PencilSimple, Trash } from "@/lib/ui/icons";
+import { Plus, PencilSimple, Trash, ChatCircle, ImageIcon, VideoCamera } from "@/lib/ui/icons";
 import { apiClient } from "@/lib/api/client";
 import { showApiError } from "@/components/feedback/ApiErrorToast";
 import { useMessageTemplates, type MessageTemplate } from "@/hooks/inbox/useMessageTemplates";
@@ -112,12 +112,21 @@ export function TemplatesClient({ canShare, currentUserId }: Props) {
               >
                 <div className="min-w-0 space-y-1">
                   <div className="flex items-center gap-2">
+                    {template.kind === "image" ? (
+                      <ImageIcon className="size-4" aria-label={t("Foto")} />
+                    ) : template.kind === "video" ? (
+                      <VideoCamera className="size-4" aria-label={t("Vídeo")} />
+                    ) : (
+                      <ChatCircle className="size-4" aria-label={t("Texto")} />
+                    )}
                     <span className="font-medium">{template.title}</span>
                     <Badge variant={template.owner_user_id ? "neutral" : "default"}>
                       {t(template.owner_user_id ? "Pessoal" : "Compartilhado")}
                     </Badge>
                   </div>
-                  <p className="line-clamp-2 text-sm text-muted-foreground">{template.body}</p>
+                  <p className="line-clamp-2 text-sm text-muted-foreground">
+                    {template.body || template.media_filename || t("Sem legenda")}
+                  </p>
                 </div>
                 {canModify(template) && (
                   <div className="flex shrink-0 gap-1">

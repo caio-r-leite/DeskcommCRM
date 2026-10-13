@@ -214,11 +214,7 @@ function combineSignals(signals: Array<AbortSignal | undefined>): AbortSignal {
       controller.abort(sig.reason);
       break;
     }
-    sig.addEventListener(
-      "abort",
-      () => controller.abort(sig.reason),
-      { once: true },
-    );
+    sig.addEventListener("abort", () => controller.abort(sig.reason), { once: true });
   }
   return controller.signal;
 }
@@ -256,7 +252,8 @@ async function request<T>(
     ...(opts.headers ?? {}),
   };
 
-  if (body !== undefined && body !== null) {
+  const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
+  if (body !== undefined && body !== null && !isFormData) {
     headers["Content-Type"] ??= "application/json";
   }
 
@@ -270,7 +267,7 @@ async function request<T>(
   }
 
   const serializedBody =
-    body === undefined || body === null ? undefined : JSON.stringify(body);
+    body === undefined || body === null ? undefined : isFormData ? body : JSON.stringify(body);
   const timeoutMs =
     opts.timeoutMs ?? (MUTATING_METHODS.has(method) ? MUTATION_TIMEOUT_MS : DEFAULT_TIMEOUT_MS);
 
@@ -366,9 +363,7 @@ async function request<T>(
         synthesizeCode(res.status),
         undefined,
         responseRequestId,
-        typeof errBody === "string" && errBody.length > 0
-          ? errBody
-          : `HTTP ${res.status}`,
+        typeof errBody === "string" && errBody.length > 0 ? errBody : `HTTP ${res.status}`,
       );
     } catch (err) {
       // ApiError thrown above for non-retryable: propagate immediately
@@ -409,14 +404,10 @@ async function request<T>(
   }
 
   // Exhausted retries on retryable status: throw a synthetic ApiError
-  throw lastError ??
-    new ApiError(
-      503,
-      "service_unavailable",
-      undefined,
-      requestId,
-      "Max retries exhausted",
-    );
+  throw (
+    lastError ??
+    new ApiError(503, "service_unavailable", undefined, requestId, "Max retries exhausted")
+  );
 }
 
 export const apiClient = {

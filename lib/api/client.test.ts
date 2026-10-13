@@ -2,7 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { apiClient } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/types";
 
-function jsonResponse(status: number, body: unknown, headers: Record<string, string> = {}): Response {
+function jsonResponse(
+  status: number,
+  body: unknown,
+  headers: Record<string, string> = {},
+): Response {
   const text = typeof body === "string" ? body : JSON.stringify(body);
   return new Response(text, {
     status,
@@ -33,6 +37,18 @@ describe("apiClient", () => {
     expect(headers["Idempotency-Key"]).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
     );
+  });
+
+  it("envia FormData sem serializar e deixa o navegador definir o boundary multipart", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { data: { ok: true } }));
+    const form = new FormData();
+    form.set("payload", "{}");
+
+    await apiClient.post("/upload", form);
+
+    const init = fetchMock.mock.calls[0]![1] as RequestInit;
+    expect(init.body).toBe(form);
+    expect((init.headers as Record<string, string>)["Content-Type"]).toBeUndefined();
   });
 
   it("t2: GET injects X-Request-Id but NOT Idempotency-Key", async () => {
@@ -106,9 +122,7 @@ describe("apiClient", () => {
         }),
     );
 
-    const err: unknown = await apiClient
-      .get("/x", { timeoutMs: 5 })
-      .catch((e: unknown) => e);
+    const err: unknown = await apiClient.get("/x", { timeoutMs: 5 }).catch((e: unknown) => e);
 
     // `DOMException` não é `instanceof Error` no Node — checa `.name`/`.message`
     // diretamente, que é a mesma superfície que qualquer chamador consulta.
@@ -323,9 +337,7 @@ describe("apiClient — quando a organização some debaixo da tela", () => {
     // `toBeInstanceOf(ApiError)` NÃO serve aqui: o `vi.resetModules()` acima faz
     // o módulo importado dinamicamente carregar uma SEGUNDA cópia da classe, e
     // a comparação de identidade falha mesmo com o erro certo.
-    await expect(cliente.get("/api/v1/conversations")).rejects.toThrow(
-      "No active organization.",
-    );
+    await expect(cliente.get("/api/v1/conversations")).rejects.toThrow("No active organization.");
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
@@ -394,8 +406,18 @@ describe("apiClient — quando a empresa é suspensa com a tela aberta", () => {
     reload = vi.fn();
     pathname = "/app/inbox";
     vi.stubGlobal("window", {
-      location: { assign, reload, get pathname() { return pathname; } },
-      sessionStorage: { getItem: () => null, setItem: () => undefined, removeItem: () => undefined },
+      location: {
+        assign,
+        reload,
+        get pathname() {
+          return pathname;
+        },
+      },
+      sessionStorage: {
+        getItem: () => null,
+        setItem: () => undefined,
+        removeItem: () => undefined,
+      },
     });
   });
 

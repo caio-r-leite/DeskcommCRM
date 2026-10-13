@@ -1,9 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import { isMediaPathOwnedBy } from "@/lib/messaging/media/upload-validation";
+import {
+  isMediaPathOwnedBy,
+  isTemplateMediaPathOwnedBy,
+} from "@/lib/messaging/media/upload-validation";
 import { wahaSendPlanFor } from "@/lib/waha/media-send";
 
-const media = { url: "https://signed.example/x?token=t", mime: "image/jpeg", filename: "x.jpg", caption: "oi" };
+const media = {
+  url: "https://signed.example/x?token=t",
+  mime: "image/jpeg",
+  filename: "x.jpg",
+  caption: "oi",
+};
 
 describe("wahaSendPlanFor", () => {
   it("image → sendImage com caption", () => {
@@ -24,9 +32,29 @@ describe("wahaSendPlanFor", () => {
     expect(plan.payload.caption).toBeUndefined(); // voz não tem caption no WhatsApp
   });
   it("document (e desconhecidos) → sendFile com filename", () => {
-    const plan = wahaSendPlanFor("document", { ...media, mime: "application/pdf", filename: "doc.pdf" });
+    const plan = wahaSendPlanFor("document", {
+      ...media,
+      mime: "application/pdf",
+      filename: "doc.pdf",
+    });
     expect(plan.endpoint).toBe("sendFile");
     expect((plan.payload.file as { filename: string }).filename).toBe("doc.pdf");
+  });
+});
+
+describe("isTemplateMediaPathOwnedBy", () => {
+  const orgId = "org-1";
+
+  it("aceita somente arquivo sob a pasta templates da organização", () => {
+    expect(isTemplateMediaPathOwnedBy(`${orgId}/templates/foto.jpg`, orgId)).toBe(true);
+    expect(isTemplateMediaPathOwnedBy(`org-2/templates/foto.jpg`, orgId)).toBe(false);
+    expect(isTemplateMediaPathOwnedBy(`${orgId}/outra/foto.jpg`, orgId)).toBe(false);
+  });
+
+  it("recusa traversal e caminho vazio", () => {
+    expect(isTemplateMediaPathOwnedBy(`${orgId}/templates/../outra/foto.jpg`, orgId)).toBe(false);
+    expect(isTemplateMediaPathOwnedBy(`${orgId}/templates/`, orgId)).toBe(false);
+    expect(isTemplateMediaPathOwnedBy(`${orgId}/templates/..\\foto.jpg`, orgId)).toBe(false);
   });
 });
 
@@ -35,26 +63,48 @@ describe("isMediaPathOwnedBy", () => {
   const conversationId = "conv-1";
 
   it("path da própria org/conversa → true", () => {
-    expect(isMediaPathOwnedBy(`${orgId}/${conversationId}/foo.jpg`, orgId, conversationId)).toBe(true);
+    expect(isMediaPathOwnedBy(`${orgId}/${conversationId}/foo.jpg`, orgId, conversationId)).toBe(
+      true,
+    );
   });
   it("org diferente → false", () => {
-    expect(isMediaPathOwnedBy(`org-2/${conversationId}/foo.jpg`, orgId, conversationId)).toBe(false);
+    expect(isMediaPathOwnedBy(`org-2/${conversationId}/foo.jpg`, orgId, conversationId)).toBe(
+      false,
+    );
   });
   it("conversa diferente → false", () => {
     expect(isMediaPathOwnedBy(`${orgId}/conv-2/foo.jpg`, orgId, conversationId)).toBe(false);
   });
   it("confusão de prefixo (org-1x/...) → false", () => {
-    expect(isMediaPathOwnedBy(`${orgId}x/${conversationId}/foo.jpg`, orgId, conversationId)).toBe(false);
+    expect(isMediaPathOwnedBy(`${orgId}x/${conversationId}/foo.jpg`, orgId, conversationId)).toBe(
+      false,
+    );
   });
 
   it("recusa caminho que sai da pasta da conversa por `..`, `.`, segmento vazio ou barra invertida", () => {
-    expect(isMediaPathOwnedBy(`${orgId}/${conversationId}/../conv-2/foo.jpg`, orgId, conversationId)).toBe(false);
-    expect(isMediaPathOwnedBy(`${orgId}/${conversationId}/../../org-2/conv-9/foo.jpg`, orgId, conversationId)).toBe(false);
-    expect(isMediaPathOwnedBy(`${orgId}/${conversationId}/./foo.jpg`, orgId, conversationId)).toBe(false);
-    expect(isMediaPathOwnedBy(`${orgId}/${conversationId}//foo.jpg`, orgId, conversationId)).toBe(false);
-    expect(isMediaPathOwnedBy(`${orgId}/${conversationId}/..\\org-2\\foo.jpg`, orgId, conversationId)).toBe(false);
+    expect(
+      isMediaPathOwnedBy(`${orgId}/${conversationId}/../conv-2/foo.jpg`, orgId, conversationId),
+    ).toBe(false);
+    expect(
+      isMediaPathOwnedBy(
+        `${orgId}/${conversationId}/../../org-2/conv-9/foo.jpg`,
+        orgId,
+        conversationId,
+      ),
+    ).toBe(false);
+    expect(isMediaPathOwnedBy(`${orgId}/${conversationId}/./foo.jpg`, orgId, conversationId)).toBe(
+      false,
+    );
+    expect(isMediaPathOwnedBy(`${orgId}/${conversationId}//foo.jpg`, orgId, conversationId)).toBe(
+      false,
+    );
+    expect(
+      isMediaPathOwnedBy(`${orgId}/${conversationId}/..\\org-2\\foo.jpg`, orgId, conversationId),
+    ).toBe(false);
     expect(isMediaPathOwnedBy(`${orgId}/${conversationId}/`, orgId, conversationId)).toBe(false);
     // Controle: subpasta e nome com ponto continuam valendo.
-    expect(isMediaPathOwnedBy(`${orgId}/${conversationId}/2026/foto..final.jpg`, orgId, conversationId)).toBe(true);
+    expect(
+      isMediaPathOwnedBy(`${orgId}/${conversationId}/2026/foto..final.jpg`, orgId, conversationId),
+    ).toBe(true);
   });
 });

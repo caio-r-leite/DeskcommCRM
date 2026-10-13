@@ -9,7 +9,7 @@ import {
   type ClipboardEvent,
   type KeyboardEvent,
 } from "react";
-import { PaperPlaneTilt } from "@/lib/ui/icons";
+import { Lightning, PaperPlaneTilt } from "@/lib/ui/icons";
 import { Button } from "@/components/ui/button";
 import { AttachMenu } from "@/components/inbox/composer/AttachMenu";
 import { AttachmentPreviewDialog } from "@/components/inbox/composer/AttachmentPreviewDialog";
@@ -37,10 +37,7 @@ import {
   interpolateTemplate,
   type TemplateContact,
 } from "@/lib/inbox/template-vars";
-import {
-  type AvisoDeRascunho,
-  type MotivoDeRecusa,
-} from "@/lib/inbox/rascunho-sugerido";
+import { type AvisoDeRascunho, type MotivoDeRecusa } from "@/lib/inbox/rascunho-sugerido";
 import { apiClient } from "@/lib/api/client";
 import { embutirMencoes, podarMencoes, type MencaoEscolhida } from "@/lib/notifications/mentions";
 import { cn } from "@/lib/utils";
@@ -145,6 +142,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
   // deixar a faixa prometendo texto que já saiu seria mentira de tela.
   const [rascunhoUsado, setRascunhoUsado] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [pendingCaption, setPendingCaption] = useState("");
   /**
    * O modo em que o arquivo foi ESCOLHIDO, congelado na escolha — e não o modo
    * em que o diálogo está aberto agora.
@@ -158,6 +156,8 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
   const [pendingEm, setPendingEm] = useState<"reply" | "note">("reply");
   const [contactPickerOpen, setContactPickerOpen] = useState(false);
   const [menuDismissed, setMenuDismissed] = useState(false);
+  const [quickMenuOpen, setQuickMenuOpen] = useState(false);
+  const [templateMediaLoading, setTemplateMediaLoading] = useState(false);
   const [mode, setMode] = useState<"reply" | "note">(initialMode);
   /**
    * Menção de atendente (#2372) — e o motivo de ser quatro estados.
@@ -186,7 +186,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
   const createNote = useCreateNote();
   const templates = useMessageTemplates();
   const slash = resolveSlash(text);
-  const menuOpen = mode === "reply" && slash.open && !menuDismissed;
+  const menuOpen = mode === "reply" && (slash.open || quickMenuOpen) && !menuDismissed;
 
   // SÓ em nota: a menção é assunto interno, e uma menção no campo de resposta
   // sairia para o cliente como texto solto. A query roda enquanto a lista está
@@ -211,6 +211,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
 
   /** Escolhe o arquivo e MARCA o modo da escolha (ver `pendingEm`). */
   function escolherArquivo(file: File) {
+    setPendingCaption("");
     setPendingFile(file);
     setPendingEm(mode);
   }
@@ -283,15 +284,17 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
             // `embutirMencoes` pareia ocorrência e escolha por ordem.
             const restaurado = restaurar(taRef.current?.value ?? "");
             setMencoes((atual) =>
-              podarMencoes(restaurado, [...mencoesEnviadas, ...atual.filter((m) => !mencoesEnviadas.includes(m))]),
+              podarMencoes(restaurado, [
+                ...mencoesEnviadas,
+                ...atual.filter((m) => !mencoesEnviadas.includes(m)),
+              ]),
             );
           },
           // Só depois de gravar, e só as escolhas DESTA nota — a lista pode já
           // ter a menção da PRÓXIMA, escolhida enquanto esta ainda estava no ar
           // (`mencoesEnviadas`): zerar tudo apagava a escolha dela, e a nota
           // seguinte sairia como texto puro (com homônimos, avisando os dois).
-          onSuccess: () =>
-            setMencoes((atual) => atual.filter((m) => !mencoesEnviadas.includes(m))),
+          onSuccess: () => setMencoes((atual) => atual.filter((m) => !mencoesEnviadas.includes(m))),
         },
       );
       return;
@@ -339,22 +342,46 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
       });
   }
 
-  function applyTemplate(tpl: MessageTemplate) {
+  async function applyTemplate(tpl: MessageTemplate) {
     const contato: TemplateContact = {
       name: contactName ?? null,
       displayName: contactDisplayName ?? null,
     };
     const filled = interpolateTemplate(tpl.body, contato);
-    setText(filled);
     // Contato sem `name` NEM `display_name`: o literal sobrevive no texto e iria
     // pro cliente como `{{nome}}`. O aviso não é cosmético — é a única chance
     // do operador editar antes de mandar (#2744).
     if (faltouNomeDeContato(tpl.body, contato)) {
       toast.warning(
-        t("Contato sem nome no CRM: {{nome}}/{{primeiro_nome}} ficaram literais no texto. Edite antes de enviar."),
+        t(
+          "Contato sem nome no CRM: {{nome}}/{{primeiro_nome}} ficaram literais no texto. Edite antes de enviar.",
+        ),
       );
     }
     setMenuDismissed(true);
+    setQuickMenuOpen(false);
+    if (tpl.kind !== "text") {
+      setTemplateMediaLoading(true);
+      try {
+        const response = await fetch(`/api/v1/message-templates/${tpl.id}/media`, {
+          credentials: "same-origin",
+        });
+        if (!response.ok) throw new Error("download_failed");
+        const blob = await response.blob();
+        const file = new File([blob], tpl.media_filename || tpl.title, {
+          type: tpl.media_mime || blob.type,
+        });
+        setPendingCaption(filled);
+        setPendingEm("reply");
+        setPendingFile(file);
+      } catch {
+        toast.error(t("Não foi possível carregar o arquivo da resposta rápida."));
+      } finally {
+        setTemplateMediaLoading(false);
+      }
+      return;
+    }
+    setText(filled);
     const ta = taRef.current;
     if (!ta) return;
     requestAnimationFrame(() => {
@@ -393,6 +420,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Escape" && menuOpen) {
       setMenuDismissed(true);
+      setQuickMenuOpen(false);
       return;
     }
     // A lista de menções come as teclas ANTES do Enter salvar — a mesma lei
@@ -453,7 +481,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
         )}
         <TemplateMenu
           open={menuOpen}
-          query={slash.query}
+          query={quickMenuOpen ? "" : slash.query}
           templates={templates.data ?? []}
           onPick={applyTemplate}
           onClose={() => setMenuDismissed(true)}
@@ -560,6 +588,23 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
             onPick={escolherArquivo}
             onPickContact={mode === "reply" ? () => setContactPickerOpen(true) : undefined}
           />
+          {mode === "reply" && (
+            <Button
+              type="button"
+              variant={quickMenuOpen ? "secondary" : "ghost"}
+              size="icon"
+              className="h-9 w-9 shrink-0"
+              disabled={respostaBarrada || templateMediaLoading}
+              aria-label={t("Respostas rápidas")}
+              title={t("Respostas rápidas")}
+              onClick={() => {
+                setQuickMenuOpen((open) => !open);
+                setMenuDismissed(false);
+              }}
+            >
+              <Lightning className="size-4" weight="fill" aria-hidden />
+            </Button>
+          )}
           <EmojiButton
             disabled={isDisabled}
             onPick={(emoji) => {
@@ -597,6 +642,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
               // escolhas aqui — o `onError` da nota devolve as que foram enviadas.
               setMencoes((atual) => podarMencoes(e.target.value, atual));
               if (!resolveSlash(e.target.value).open) setMenuDismissed(false);
+              if (quickMenuOpen) setQuickMenuOpen(false);
               // Sumiu o `@` (apagou, ou o Enter escolheu): o Esc de uma vez
               // não pode travar a lista da PRÓXIMA menção.
               if (!resolverMencao(e.target.value, pos)) setMencaoDispensada(false);
@@ -653,8 +699,12 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
       </div>
       <AttachmentPreviewDialog
         file={pendingFile}
+        initialCaption={pendingCaption}
         sending={upload.isPending || send.isPending || createNote.isPending}
-        onCancel={() => setPendingFile(null)}
+        onCancel={() => {
+          setPendingFile(null);
+          setPendingCaption("");
+        }}
         onSend={async (caption) => {
           if (!pendingFile) return;
           // A BIFURCAÇÃO (#1863, F3) — e ela é decidida pelo modo CONGELADO NA
@@ -672,7 +722,11 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
           // nos dois casos).
           const destino: DestinoDoUpload = pendingEm === "note" ? "nota" : "mensagem";
           try {
-            const uploaded = await upload.mutateAsync({ conversationId, file: pendingFile, destino });
+            const uploaded = await upload.mutateAsync({
+              conversationId,
+              file: pendingFile,
+              destino,
+            });
             if (destino === "nota") {
               createNote.mutate(
                 {
@@ -684,7 +738,12 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
                     media_size_bytes: uploaded.media_size_bytes,
                   },
                 },
-                { onSuccess: () => setPendingFile(null) },
+                {
+                  onSuccess: () => {
+                    setPendingFile(null);
+                    setPendingCaption("");
+                  },
+                },
               );
               return;
             }
@@ -697,7 +756,12 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
                 media_mime: uploaded.media_mime,
                 media_size_bytes: uploaded.media_size_bytes,
               },
-              { onSuccess: () => setPendingFile(null) },
+              {
+                onSuccess: () => {
+                  setPendingFile(null);
+                  setPendingCaption("");
+                },
+              },
             );
           } catch {
             // toast já disparado pelo onError de useUploadMedia; dialog fica aberto p/ retry

@@ -7632,6 +7632,11 @@ export type Database = {
           created_at: string
           created_by_user_id: string | null
           id: string
+          kind: string
+          media_filename: string | null
+          media_mime: string | null
+          media_size_bytes: number | null
+          media_storage_path: string | null
           organization_id: string
           owner_user_id: string | null
           shortcut: string | null
@@ -7643,6 +7648,11 @@ export type Database = {
           created_at?: string
           created_by_user_id?: string | null
           id?: string
+          kind?: string
+          media_filename?: string | null
+          media_mime?: string | null
+          media_size_bytes?: number | null
+          media_storage_path?: string | null
           organization_id: string
           owner_user_id?: string | null
           shortcut?: string | null
@@ -7654,6 +7664,11 @@ export type Database = {
           created_at?: string
           created_by_user_id?: string | null
           id?: string
+          kind?: string
+          media_filename?: string | null
+          media_mime?: string | null
+          media_size_bytes?: number | null
+          media_storage_path?: string | null
           organization_id?: string
           owner_user_id?: string | null
           shortcut?: string | null

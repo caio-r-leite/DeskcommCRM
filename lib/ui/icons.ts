@@ -101,6 +101,7 @@ export {
   PhoneOutgoing,
   PhoneX,
   Paperclip,
+  Lightning,
   Microphone,
   MicrophoneSlash,
   Image as ImageIcon,

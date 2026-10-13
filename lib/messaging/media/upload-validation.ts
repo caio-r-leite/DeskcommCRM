@@ -24,6 +24,17 @@ export function isMediaPathOwnedBy(path: string, orgId: string, conversationId: 
   return resto.split("/").every((s) => s !== "" && s !== "." && s !== "..");
 }
 
+/** Posse do arquivo reutilizável de uma resposta rápida da organização. */
+export function isTemplateMediaPathOwnedBy(path: string, orgId: string): boolean {
+  const prefixo = `${orgId}/templates/`;
+  if (!path.startsWith(prefixo)) return false;
+  const resto = path.slice(prefixo.length);
+  if (resto.includes("\\")) return false;
+  return resto
+    .split("/")
+    .every((segmento) => segmento !== "" && segmento !== "." && segmento !== "..");
+}
+
 const DOCUMENT_MIMES = new Set([
   "application/pdf",
   "application/msword",
@@ -59,7 +70,11 @@ export function kindFromMime(mime: string): MessageKind | null {
 }
 
 type Ok = { ok: true; kind: MessageKind };
-type Fail = { ok: false; code: "unsupported_media_type" | "payload_too_large" | "validation_failed"; message: string };
+type Fail = {
+  ok: false;
+  code: "unsupported_media_type" | "payload_too_large" | "validation_failed";
+  message: string;
+};
 
 export function validateOutboundMedia(mime: string, sizeBytes: number): Ok | Fail {
   if (!sizeBytes || sizeBytes <= 0) {

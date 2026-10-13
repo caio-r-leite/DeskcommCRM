@@ -15,10 +15,13 @@ import { fail, ok, noContent } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
 import { updateTemplateSchema } from "@/lib/schemas/templates";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { traduzir } from "@/lib/i18n/dicionario";
+import { isTemplateMediaPathOwnedBy } from "@/lib/messaging/media/upload-validation";
 
 export const dynamic = "force-dynamic";
-const COLS = "id, organization_id, owner_user_id, title, body, shortcut, created_by_user_id, created_at, updated_at";
+const COLS =
+  "id, organization_id, owner_user_id, kind, title, body, shortcut, media_storage_path, media_mime, media_size_bytes, media_filename, created_by_user_id, created_at, updated_at";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -45,6 +48,20 @@ export async function PATCH(req: NextRequest, { params }: RouteParams): Promise<
   }
 
   const supabase = await createClient();
+  if (parsed.data.body === "") {
+    const { data: existing } = await supabase
+      .from("message_templates")
+      .select("kind")
+      .eq("id", id)
+      .eq("organization_id", org.orgId)
+      .maybeSingle();
+    if (!existing) return fail("not_found", t("Template não encontrado."), 404, { requestId });
+    if (existing.kind === "text") {
+      return fail("validation_failed", t("A mensagem de texto não pode ficar vazia."), 422, {
+        requestId,
+      });
+    }
+  }
   const { data, error } = await supabase
     .from("message_templates")
     .update({ ...parsed.data, updated_at: new Date().toISOString() })
@@ -86,10 +103,21 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams): Promis
     .delete()
     .eq("id", id)
     .eq("organization_id", org.orgId)
-    .select("id")
+    .select("id, media_storage_path")
     .maybeSingle();
   if (error) return fail("internal_error", "Erro ao excluir template.", 500, { requestId });
   if (!deleted) return fail("not_found", t("Template não encontrado."), 404, { requestId });
+
+  if (deleted.media_storage_path) {
+    if (isTemplateMediaPathOwnedBy(deleted.media_storage_path, org.orgId)) {
+      const { error: storageError } = await createAdminClient()
+        .storage.from("whatsapp-media")
+        .remove([deleted.media_storage_path]);
+      if (storageError) {
+        console.error("[message-templates.delete] media cleanup failed", storageError.message);
+      }
+    }
+  }
 
   void audit({
     action: "template.deleted",

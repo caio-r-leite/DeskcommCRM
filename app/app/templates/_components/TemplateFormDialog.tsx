@@ -21,6 +21,8 @@ import {
 import { apiClient } from "@/lib/api/client";
 import { showApiError } from "@/components/feedback/ApiErrorToast";
 import type { MessageTemplate } from "@/hooks/inbox/useMessageTemplates";
+import { ChatCircle, ImageIcon, VideoCamera } from "@/lib/ui/icons";
+import { MAX_MEDIA_BYTES } from "@/lib/messaging/media/types";
 
 const TEMPLATES_KEY = ["message-templates"];
 
@@ -32,6 +34,7 @@ interface Props {
 }
 
 interface CreateInput {
+  kind: "text";
   title: string;
   body: string;
   shortcut?: string;
@@ -52,11 +55,13 @@ export function TemplateFormDialog({ open, onOpenChange, canShare, template }: P
   const [body, setBody] = React.useState("");
   const [shortcut, setShortcut] = React.useState("");
   const [shared, setShared] = React.useState(false);
+  const [kind, setKind] = React.useState<"text" | "image" | "video">("text");
+  const [file, setFile] = React.useState<File | null>(null);
 
   const qc = useQueryClient();
   const create = useMutation({
-    mutationFn: async (input: CreateInput) =>
-      apiClient.post<{ data: MessageTemplate }>("/api/v1/message-templates", input),
+    mutationFn: async (input: { path: string; body: CreateInput | FormData }) =>
+      apiClient.post<{ data: MessageTemplate }>(input.path, input.body),
     onError: showApiError,
     onSuccess: () => qc.invalidateQueries({ queryKey: TEMPLATES_KEY }),
   });
@@ -74,6 +79,8 @@ export function TemplateFormDialog({ open, onOpenChange, canShare, template }: P
     setBody(template?.body ?? "");
     setShortcut(template?.shortcut ?? "");
     setShared(template ? template.owner_user_id === null : false);
+    setKind(template?.kind ?? "text");
+    setFile(null);
   }, [open, template]);
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -88,12 +95,44 @@ export function TemplateFormDialog({ open, onOpenChange, canShare, template }: P
         });
         toast.success(t("Template atualizado."));
       } else {
-        await create.mutateAsync({
-          title,
-          body,
-          shortcut: shortcut.trim() || undefined,
-          shared: canShare ? shared : false,
-        });
+        if (kind === "text") {
+          await create.mutateAsync({
+            path: "/api/v1/message-templates",
+            body: {
+              kind,
+              title,
+              body,
+              shortcut: shortcut.trim() || undefined,
+              shared: canShare ? shared : false,
+            },
+          });
+        } else {
+          if (!file) {
+            toast.error(t("Escolha um arquivo."));
+            return;
+          }
+          if (file.size > MAX_MEDIA_BYTES) {
+            toast.error(t("Arquivo acima de 50MB."));
+            return;
+          }
+          if (!file.type.startsWith(`${kind}/`)) {
+            toast.error(t("O arquivo não corresponde ao tipo escolhido."));
+            return;
+          }
+          const form = new FormData();
+          form.set("file", file);
+          form.set(
+            "payload",
+            JSON.stringify({
+              kind,
+              title,
+              body,
+              shortcut: shortcut.trim() || undefined,
+              shared: canShare ? shared : false,
+            }),
+          );
+          await create.mutateAsync({ path: "/api/v1/message-templates/media", body: form });
+        }
         toast.success(t("Template criado."));
       }
       onOpenChange(false);
@@ -113,6 +152,43 @@ export function TemplateFormDialog({ open, onOpenChange, canShare, template }: P
         </DialogHeader>
         <form onSubmit={onSubmit} className="space-y-4">
           <div className="space-y-2">
+            <Label>{t("Tipo de resposta")}</Label>
+            <div
+              className="grid grid-cols-3 gap-2"
+              role="radiogroup"
+              aria-label={t("Tipo de resposta")}
+            >
+              {(
+                [
+                  ["text", t("Texto"), ChatCircle],
+                  ["image", t("Foto"), ImageIcon],
+                  ["video", t("Vídeo"), VideoCamera],
+                ] as const
+              ).map(([value, label, Icon]) => (
+                <Button
+                  key={value}
+                  type="button"
+                  variant={kind === value ? "default" : "outline"}
+                  className="gap-2"
+                  role="radio"
+                  aria-checked={kind === value}
+                  disabled={isEdit}
+                  onClick={() => {
+                    setKind(value);
+                    setFile(null);
+                  }}
+                >
+                  <Icon aria-hidden /> {label}
+                </Button>
+              ))}
+            </div>
+            {isEdit && (
+              <p className="text-xs text-muted-foreground">
+                {t("O tipo e o arquivo não mudam na edição. Para trocar, crie outra resposta.")}
+              </p>
+            )}
+          </div>
+          <div className="space-y-2">
             <Label htmlFor="tpl-title">{t("Título")}</Label>
             <Input
               id="tpl-title"
@@ -125,21 +201,36 @@ export function TemplateFormDialog({ open, onOpenChange, canShare, template }: P
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="tpl-body">{t("Mensagem")}</Label>
+            <Label htmlFor="tpl-body">
+              {kind === "text" ? t("Mensagem") : t("Legenda (opcional)")}
+            </Label>
             <Textarea
               id="tpl-body"
               value={body}
               onChange={(e) => setBody(e.target.value)}
               placeholder={t("Oi {{primeiro_nome}}, tudo bem?")}
-              minLength={1}
+              minLength={kind === "text" ? 1 : undefined}
               maxLength={4096}
-              required
+              required={kind === "text"}
               rows={5}
             />
             <p className="text-xs text-muted-foreground">
               {t("Use")} {"{{primeiro_nome}}"} {t("e")} {"{{nome}}"} {t("para personalizar.")}
             </p>
           </div>
+          {kind !== "text" && !isEdit && (
+            <div className="space-y-2">
+              <Label htmlFor="tpl-file">{kind === "image" ? t("Foto") : t("Vídeo")}</Label>
+              <Input
+                id="tpl-file"
+                type="file"
+                accept={kind === "image" ? "image/*" : "video/*"}
+                required
+                onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+              />
+              <p className="text-xs text-muted-foreground">{t("Tamanho máximo: 50MB.")}</p>
+            </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="tpl-shortcut">{t("Atalho (opcional)")}</Label>
             <Input

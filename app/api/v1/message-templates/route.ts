@@ -21,7 +21,7 @@ import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 const COLS =
-  "id, organization_id, owner_user_id, title, body, shortcut, created_by_user_id, created_at, updated_at";
+  "id, organization_id, owner_user_id, kind, title, body, shortcut, media_storage_path, media_mime, media_size_bytes, media_filename, created_by_user_id, created_at, updated_at";
 /** Tag do endpoint no recibo de idempotência. Muda de rota muda de recibo. */
 const ENDPOINT = "/api/v1/message-templates";
 
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       details: parsed.error.flatten().fieldErrors as Record<string, unknown>,
     });
   }
-  const { title, body, shortcut, shared } = parsed.data;
+  const { title, body, shortcut, shared, kind } = parsed.data;
   // Compartilhado exige manager+. requireRole já resolveu o role efetivo do
   // banco em org.role — reusar em vez de uma 2ª chamada/RPC. A RLS with_check
   // barra de qualquer forma; isto só dá um erro claro antes do insert.
@@ -90,6 +90,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         owner_user_id: shared ? null : user.id,
         title,
         body,
+        kind,
         shortcut: shortcut ?? null,
         created_by_user_id: user.id,
       })

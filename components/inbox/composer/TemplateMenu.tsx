@@ -1,6 +1,7 @@
 "use client";
 import { useT } from "@/hooks/i18n/useT";
 import type { MessageTemplate } from "@/hooks/inbox/useMessageTemplates";
+import { ChatCircle, ImageIcon, VideoCamera } from "@/lib/ui/icons";
 
 /** Estado do slash-menu a partir do texto do composer. Puro (testável). */
 export function resolveSlash(text: string): { open: boolean; query: string } {
@@ -32,17 +33,30 @@ export function TemplateMenu({ open, query, templates, onPick, onClose: _onClose
       aria-label={t("Templates de script")}
     >
       {filtered.length === 0 ? (
-        <div className="px-3 py-2 text-xs text-muted-foreground">{t("Nenhum template. Crie em Configurações.")}</div>
+        <div className="px-3 py-2 text-xs text-muted-foreground">
+          {t("Nenhum template. Crie em Configurações.")}
+        </div>
       ) : (
         filtered.map((tpl) => (
           <button
             key={tpl.id}
             type="button"
-            className="flex w-full flex-col items-start gap-0.5 rounded-md px-3 py-2 text-left hover:bg-muted"
+            className="flex w-full items-start gap-2 rounded-md px-3 py-2 text-left hover:bg-muted"
             onClick={() => onPick(tpl)}
           >
-            <span className="text-sm font-medium">{tpl.title}</span>
-            <span className="line-clamp-1 text-xs text-muted-foreground">{tpl.body}</span>
+            {tpl.kind === "image" ? (
+              <ImageIcon className="mt-0.5 size-4 shrink-0" aria-hidden />
+            ) : tpl.kind === "video" ? (
+              <VideoCamera className="mt-0.5 size-4 shrink-0" aria-hidden />
+            ) : (
+              <ChatCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
+            )}
+            <span className="min-w-0">
+              <span className="block text-sm font-medium">{tpl.title}</span>
+              <span className="line-clamp-1 block text-xs text-muted-foreground">
+                {tpl.body || tpl.media_filename || t("Sem legenda")}
+              </span>
+            </span>
           </button>
         ))
       )}

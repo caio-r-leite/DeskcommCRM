@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Respostas rápidas com texto, foto ou vídeo",
+    "subtitle": "Cadastro privado por organização, revisão humana e envio pelo pipeline existente",
+    "output": "respostas-rapidas-multimidia.html",
+    "quality_profile": "standard"
+  },
+  "lanes": [
+    { "id": "ui", "label": "Interface" },
+    { "id": "api", "label": "Borda autenticada" },
+    { "id": "data", "label": "Dados privados" },
+    { "id": "send", "label": "Envio existente" }
+  ],
+  "mainPath": ["management", "media_api", "database", "composer", "send_pipeline"],
+  "nodes": [
+    {
+      "id": "management",
+      "lane": "ui",
+      "col": 1,
+      "type": "frontend",
+      "label": "Respostas rápidas",
+      "sublabel": "cadastra texto, foto ou vídeo"
+    },
+    {
+      "id": "composer",
+      "lane": "ui",
+      "col": 4,
+      "type": "frontend",
+      "label": "Composer + botão de raio",
+      "sublabel": "texto editável ou prévia cancelável de mídia"
+    },
+    {
+      "id": "list_api",
+      "lane": "api",
+      "col": 2,
+      "type": "api",
+      "label": "API de message-templates",
+      "sublabel": "lista, cria texto, edita e exclui"
+    },
+    {
+      "id": "media_api",
+      "lane": "api",
+      "col": 2,
+      "type": "api",
+      "label": "POST /message-templates/media",
+      "sublabel": "agent+, limite 50 MB, imagem ou vídeo"
+    },
+    {
+      "id": "download_api",
+      "lane": "api",
+      "col": 3,
+      "type": "api",
+      "label": "GET /message-templates/:id/media",
+      "sublabel": "RLS + prefixo da organização"
+    },
+    {
+      "id": "database",
+      "lane": "data",
+      "col": 3,
+      "type": "database",
+      "label": "message_templates",
+      "sublabel": "kind e metadados; RLS pessoal/compartilhado"
+    },
+    {
+      "id": "storage",
+      "lane": "data",
+      "col": 2,
+      "type": "database",
+      "label": "whatsapp-media/<org>/templates",
+      "sublabel": "objeto privado; leitura só pela API"
+    },
+    {
+      "id": "send_pipeline",
+      "lane": "send",
+      "col": 5,
+      "type": "service",
+      "label": "Preview → upload da conversa → send",
+      "sublabel": "reaproveita validação, confirmação e envio já existentes"
+    }
+  ],
+  "edges": [
+    { "id": "e1", "from": "management", "to": "list_api", "label": "texto, edição e exclusão" },
+    { "id": "e2", "from": "management", "to": "media_api", "label": "multipart com foto ou vídeo" },
+    { "id": "e3", "from": "list_api", "to": "database", "label": "RLS da organização" },
+    { "id": "e4", "from": "media_api", "to": "database", "label": "metadados e caminho" },
+    { "id": "e5", "from": "media_api", "to": "storage", "label": "grava objeto privado" },
+    { "id": "e6", "from": "composer", "to": "list_api", "label": "lista visível no botão de raio" },
+    { "id": "e7", "from": "composer", "to": "download_api", "label": "escolheu mídia" },
+    { "id": "e8", "from": "download_api", "to": "database", "label": "confere linha visível" },
+    {
+      "id": "e9",
+      "from": "download_api",
+      "to": "storage",
+      "label": "baixa após validar o prefixo"
+    },
+    { "id": "e10", "from": "composer", "to": "send_pipeline", "label": "confirmar na prévia" },
+    {
+      "id": "e11",
+      "from": "send_pipeline",
+      "to": "storage",
+      "label": "cópia pertencente à conversa"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Laço humano preservado",
+      "items": [
+        "texto entra no campo e pode ser alterado antes de enviar",
+        "foto e vídeo sempre abrem a prévia com Cancelar e Enviar",
+        "falha ao carregar ou subir mantém o atendimento interrompível e mostra erro"
+      ]
+    }
+  ]
+}
