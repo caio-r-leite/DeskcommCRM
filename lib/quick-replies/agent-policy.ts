@@ -1,5 +1,26 @@
 export type QuickReplyAccessMode = "none" | "selected" | "all";
 
+export function reconcileSelectedQuickReplies(
+  mode: QuickReplyAccessMode,
+  selectedIds: readonly string[],
+  availableIds: readonly string[],
+): { mode: QuickReplyAccessMode; templateIds: string[]; removedIds: string[] } {
+  if (mode !== "selected") {
+    return { mode, templateIds: [...selectedIds], removedIds: [] };
+  }
+
+  const available = new Set(availableIds);
+  const templateIds = [...new Set(selectedIds)].filter((id) => available.has(id));
+  const removedIds = [...new Set(selectedIds)].filter((id) => !available.has(id));
+
+  // Uma seleção que ficou vazia porque as respostas foram apagadas fecha o
+  // acesso do agente. É o estado seguro e, diferente de manter UUIDs mortos,
+  // deixa o restante do formulário voltar a ser salvo. Uma seleção que já
+  // nasceu vazia continua inválida e é explicada pela validação do editor.
+  const reconciledMode = selectedIds.length > 0 && templateIds.length === 0 ? "none" : mode;
+  return { mode: reconciledMode, templateIds, removedIds };
+}
+
 export function hasAgentTurnTools(
   toolIds: readonly string[],
   quickReplyMode: QuickReplyAccessMode | null | undefined,

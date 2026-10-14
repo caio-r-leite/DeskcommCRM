@@ -2,12 +2,15 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Zap } from "lucide-react";
+import { toast } from "sonner";
 
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiClient } from "@/lib/api/client";
 import { useT } from "@/hooks/i18n/useT";
+import { reconcileSelectedQuickReplies } from "@/lib/quick-replies/agent-policy";
+import * as React from "react";
 
 type Mode = "none" | "selected" | "all";
 type Template = {
@@ -43,7 +46,25 @@ export function AcessoRespostasRapidas({
     },
     staleTime: 60_000,
   });
-  const templates = query.data ?? [];
+  const templates = React.useMemo(() => query.data ?? [], [query.data]);
+
+  React.useEffect(() => {
+    if (!query.isSuccess || mode !== "selected") return;
+    const reconciled = reconcileSelectedQuickReplies(
+      mode,
+      templateIds,
+      templates.map((template) => template.id),
+    );
+    if (reconciled.removedIds.length === 0) return;
+
+    toast.message(
+      reconciled.removedIds.length === 1
+        ? t("Uma resposta rápida excluída foi removida deste agente. Se ela era a única selecionada, o acesso foi desativado para você poder salvar normalmente.")
+        : t("Respostas rápidas excluídas foram removidas deste agente. Se nenhuma seleção restou, o acesso foi desativado para você poder salvar normalmente."),
+    );
+    onTemplateIdsChange(reconciled.templateIds);
+    if (reconciled.mode !== mode) onModeChange(reconciled.mode);
+  }, [mode, onModeChange, onTemplateIdsChange, query.isSuccess, t, templateIds, templates]);
 
   return (
     <Card className="space-y-3 p-4">

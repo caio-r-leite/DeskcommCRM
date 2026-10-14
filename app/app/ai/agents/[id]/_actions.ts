@@ -24,6 +24,7 @@ import { loadAuthUser, resolveActiveOrg } from "@/lib/auth/server";
 import { ROLE_RANK } from "@/lib/auth/types";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { codigoDoEscopo, mensagemDoEscopo, validarEscopoDaVersao } from "@/lib/ai/agents/escopo";
+import { reconcileSelectedQuickReplies } from "@/lib/quick-replies/agent-policy";
 import {
   agentMcpCreateSchema,
   agentMcpPatchSchema,
@@ -150,7 +151,7 @@ export async function saveAgentDraftAction(
     return { ok: false, error: "validation_failed", details: cadastroParsed.error.flatten() };
   }
 
-  const v = parsed.data;
+  let v = parsed.data;
   const requestId = randomUUID();
   const admin = createAdminClient();
 
@@ -163,6 +164,33 @@ export async function saveAgentDraftAction(
     .maybeSingle();
   if (!agent) return { ok: false, error: "not_found" };
   if (agent.archived_at) return { ok: false, error: "agent_archived" };
+
+  // Uma versão publicada é histórico imutável, portanto apagar uma resposta
+  // rápida não reescreve versões antigas. Ao abrir esse agente para editar, a
+  // seleção pode conter UUIDs que já não existem. Remova somente os ausentes e
+  // feche o acesso quando nenhum sobrevive; assim uma referência morta não
+  // impede salvar mudanças sem ampliar a autoridade do agente.
+  if (v.quick_reply_access_mode === "selected" && v.quick_reply_template_ids.length > 0) {
+    const { data: available, error: quickReplyError } = await admin
+      .from("message_templates")
+      .select("id")
+      .eq("organization_id", activeOrg.orgId)
+      .is("owner_user_id", null)
+      .in("id", v.quick_reply_template_ids);
+    if (quickReplyError) {
+      return { ok: false, error: "internal_error", message: quickReplyError.message };
+    }
+    const reconciled = reconcileSelectedQuickReplies(
+      v.quick_reply_access_mode,
+      v.quick_reply_template_ids,
+      ((available ?? []) as Array<{ id: string }>).map((item) => item.id),
+    );
+    v = {
+      ...v,
+      quick_reply_access_mode: reconciled.mode,
+      quick_reply_template_ids: reconciled.templateIds,
+    };
+  }
 
   // O escopo aponta para coisas que EXISTEM nesta organização. Marcar um
   // material apagado (ou de outra organização) produz uma configuração muda: a

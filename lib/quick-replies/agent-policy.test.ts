@@ -4,6 +4,7 @@ import {
   canAgentUseTemplate,
   hasAgentTurnTools,
   matchAuthorizedTemplate,
+  reconcileSelectedQuickReplies,
   totalWaitSeconds,
 } from "./agent-policy";
 
@@ -20,6 +21,24 @@ describe("política de respostas rápidas do agente", () => {
     expect(canAgentUseTemplate("selected", ["a"], "b")).toBe(false);
     expect(canAgentUseTemplate("selected", ["a"], "a")).toBe(true);
     expect(canAgentUseTemplate("all", [], "novo")).toBe(true);
+  });
+
+  it("remove respostas apagadas e fecha o acesso quando nenhuma seleção sobrevive", () => {
+    expect(reconcileSelectedQuickReplies("selected", ["apagada"], [])).toEqual({
+      mode: "none",
+      templateIds: [],
+      removedIds: ["apagada"],
+    });
+    expect(reconcileSelectedQuickReplies("selected", ["ativa", "apagada"], ["ativa"])).toEqual({
+      mode: "selected",
+      templateIds: ["ativa"],
+      removedIds: ["apagada"],
+    });
+    expect(reconcileSelectedQuickReplies("selected", [], [])).toEqual({
+      mode: "selected",
+      templateIds: [],
+      removedIds: [],
+    });
   });
 
   it("resolve apenas título ou atalho exato e recusa ambiguidade", () => {
