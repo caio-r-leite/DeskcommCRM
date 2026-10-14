@@ -43,6 +43,7 @@ import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/s
 import { cn } from "@/lib/utils";
 import { comandosDaFila } from "@/lib/inbox/comando-da-conversa";
 import type { AvisoDeRascunho } from "@/lib/inbox/rascunho-sugerido";
+import { fimLocalEmIso, inicioLocalEmIso } from "@/lib/inbox/filtro-de-data";
 import { buscaValeConsulta } from "@/lib/inbox/termo-de-busca";
 import { useAutomaticoAtivo } from "@/hooks/ai/useAutomaticoAtivo";
 import type {
@@ -292,6 +293,9 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
       tagMode: filterValue.tagMode,
       unread: filterValue.onlyUnread || undefined,
       is_group: filterValue.onlyGroups || undefined,
+      ultima_mensagem_de: inicioLocalEmIso(filterValue.dataDe),
+      ultima_mensagem_ate: fimLocalEmIso(filterValue.dataAte),
+      ordem: filterValue.ordem,
     }),
     [
       filterValue.tab,
@@ -302,6 +306,9 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
       filterValue.tagMode,
       filterValue.onlyUnread,
       filterValue.onlyGroups,
+      filterValue.dataDe,
+      filterValue.dataAte,
+      filterValue.ordem,
     ],
   );
 

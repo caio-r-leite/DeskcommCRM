@@ -15454,6 +15454,21 @@ export const DICIONARIO: Traducoes = {
   "Nenhum negócio com este campo de data neste período.": {
     es: "Ningún negocio con este campo de fecha en este período.",
   },
+  // Inbox — filtro compacto pela data da última mensagem.
+  "Filtrar e ordenar por data": { es: "Filtrar y ordenar por fecha" },
+  "Data da última mensagem": { es: "Fecha del último mensaje" },
+  "Filtre o período exibido na lista.": { es: "Filtra el período mostrado en la lista." },
+  "Períodos rápidos": { es: "Períodos rápidos" },
+  "Última semana": { es: "Última semana" },
+  "Último mês": { es: "Último mes" },
+  "A partir de": { es: "Desde" },
+  "A data inicial deve ser anterior à data final.": { es: "La fecha inicial debe ser anterior a la fecha final." },
+  "Mês específico": { es: "Mes específico" },
+  "Ordenar lista": { es: "Ordenar lista" },
+  "Na Fila, quem espera há mais tempo permanece primeiro.": { es: "En la Cola, quien lleva más tiempo esperando permanece primero." },
+  "Mais recentes": { es: "Más recientes" },
+  "Mais antigas": { es: "Más antiguas" },
+  "Limpar filtro de data": { es: "Limpiar filtro de fecha" },
 };
 
 /**

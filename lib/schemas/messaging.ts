@@ -374,6 +374,11 @@ export const listConversationsQuerySchema = z.object({
    * `.eq("is_group", …)` no handler.
    */
   is_group: z.enum(["true", "false"]).optional(),
+  /** Período inclusivo da última mensagem, já convertido pelo navegador para UTC. */
+  ultima_mensagem_de: z.string().datetime({ offset: true }).optional(),
+  ultima_mensagem_ate: z.string().datetime({ offset: true }).optional(),
+  /** Ordem por atividade; a Fila preserva sua ordem operacional própria. */
+  ordem: z.enum(["mais_recentes", "mais_antigas"]).optional(),
   /**
    * Só as que têm mensagem não lida para o dono.
    *

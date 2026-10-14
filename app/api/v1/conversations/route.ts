@@ -73,6 +73,9 @@ export async function GET(req: NextRequest): Promise<Response> {
     // único lugar que pode esquecer sem erro nenhum. `rota-le-todo-filtro-do-schema`
     // cobra a chave.
     is_group: url.searchParams.get("is_group") ?? undefined,
+    ultima_mensagem_de: url.searchParams.get("ultima_mensagem_de") ?? undefined,
+    ultima_mensagem_ate: url.searchParams.get("ultima_mensagem_ate") ?? undefined,
+    ordem: url.searchParams.get("ordem") ?? undefined,
     search: url.searchParams.get("search") ?? undefined,
     // A cerca `rota-le-todo-filtro-do-schema` cobra a chave: schema aceita,
     // rota lê, handler filtra. Esquecer aqui é invisível para todo gate de tipo.

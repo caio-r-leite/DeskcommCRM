@@ -113,6 +113,11 @@ export interface ConversationsFilters {
   tagMode?: ModoDeEtiqueta;
   /** A aba "Grupos" do inbox (Task 10). Ausente = sem filtro, mostra tudo. */
   is_group?: boolean;
+  /** Limites inclusivos, em UTC, sobre a data da última mensagem. */
+  ultima_mensagem_de?: string;
+  ultima_mensagem_ate?: string;
+  /** A Fila ignora esta preferência e mantém quem espera há mais tempo primeiro. */
+  ordem?: "mais_recentes" | "mais_antigas";
 }
 
 interface ListResponse {
@@ -175,6 +180,9 @@ export function useConversationsRealtime(
       // `&modo=e` colado num link de hoje mudaria a URL sem mudar o sentido.
       if (filters.tagMode === "ou") qs.set("modo", "ou");
       if (filters.is_group !== undefined) qs.set("is_group", filters.is_group ? "true" : "false");
+      if (filters.ultima_mensagem_de) qs.set("ultima_mensagem_de", filters.ultima_mensagem_de);
+      if (filters.ultima_mensagem_ate) qs.set("ultima_mensagem_ate", filters.ultima_mensagem_ate);
+      if (filters.ordem) qs.set("ordem", filters.ordem);
       if (pageParam) qs.set("cursor", pageParam);
       qs.set("limit", "50");
       try {

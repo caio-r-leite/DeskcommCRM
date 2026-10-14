@@ -196,8 +196,8 @@ export async function listConversationsHandler(
   // pergunta e a posição responder outra — sem sintoma nenhum, porque as duas
   // telas continuam populadas e plausíveis.
   const sortCol = isQueue ? ORDEM_DA_ESPERA.coluna : "last_message_at";
-  const ordem = isQueue ? ORDEM_DA_ESPERA.opcoes : ({ ascending: false, nullsFirst: false } as const);
-  const asc = isQueue;
+  const asc = isQueue || q.ordem === "mais_antigas";
+  const ordem = isQueue ? ORDEM_DA_ESPERA.opcoes : ({ ascending: asc, nullsFirst: false } as const);
 
   let query = supabase
     .from("conversations")
@@ -293,6 +293,8 @@ export async function listConversationsHandler(
   // Este handler usa o admin client, que passa por cima da RLS: esse filtro é a Única
   // barreira. Consulta nova só para os não lidos nasceria sem barreira nenhuma.
   if (q.unread) query = query.gt("unread_count_for_assignee", 0);
+  if (q.ultima_mensagem_de) query = query.gte("last_message_at", q.ultima_mensagem_de);
+  if (q.ultima_mensagem_ate) query = query.lte("last_message_at", q.ultima_mensagem_ate);
 
   if (q.assigned_to === "me") {
     if (ctx.actor.type !== "user") {

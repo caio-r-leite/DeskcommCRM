@@ -25,5 +25,6 @@ export function filtrosAuxiliaresAtivos(filters: ConversationsFilters): string[]
   if (filters.tag) ativos.push("Etiqueta");
   if (filters.channel_session_id) ativos.push("Canal");
   if (filters.is_group) ativos.push("Grupos");
+  if (filters.ultima_mensagem_de || filters.ultima_mensagem_ate) ativos.push("Data");
   return ativos;
 }

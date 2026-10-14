@@ -141,8 +141,17 @@ export function ConversationListItem({
   const c = conversation.contacts ?? null;
   const displayName = rotuloDoContato(c, t);
   const phoneFallback = c?.phone_number ? phoneForDisplay(c.phone_number) : "??";
-  const tags = c?.tags ?? [];
-  const visibleTags = tags.slice(0, 2);
+  // A ficha edita etiquetas em duas caixas legítimas: conversa e contato. O
+  // card mostra a união das duas, como o próprio filtro da Inbox já faz.
+  const tags = [
+    ...new Map(
+      [...(conversation.tags ?? []), ...(c?.tags ?? [])].map((tag) => [
+        tag.trim().toLocaleLowerCase(),
+        tag,
+      ]),
+    ).values(),
+  ].filter(Boolean);
+  const visibleTags = tags.slice(0, 3);
   const overflow = tags.length - visibleTags.length;
   const preview = conversation.last_message_preview?.trim() || t("Sem mensagens");
   const truncated = preview.length > 60 ? `${preview.slice(0, 60)}…` : preview;
@@ -236,7 +245,9 @@ export function ConversationListItem({
       className={cn(
         "group relative flex w-full items-start gap-3 border-b border-border/70 px-3 py-2.5 text-left transition-colors hover:bg-surface-elevated",
         "focus-visible:outline-hidden focus-visible:bg-surface-elevated",
-        isSelected && "bg-accent-50 hover:bg-accent-50",
+        // `accent-50` permanece claro no tema escuro e apagava o nome claro.
+        // O papel semântico `accent-soft` acompanha o tema e preserva contraste.
+        isSelected && "bg-accent-soft hover:bg-accent-soft",
       )}
       aria-current={isSelected ? "true" : undefined}
     >

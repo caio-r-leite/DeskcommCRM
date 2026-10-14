@@ -35,6 +35,8 @@ import { useContactTagVocabulary } from "@/hooks/contacts/useContactTagVocabular
 import { useConversationTagVocabulary } from "@/hooks/inbox/useConversationTags";
 import { useConversationCounts } from "@/hooks/inbox/useConversationCounts";
 import type { Role, VisibilityMode } from "@/lib/auth/types";
+import { FiltroDataConversas } from "./FiltroDataConversas";
+import type { OrdemDasConversas } from "@/lib/inbox/filtro-de-data";
 
 export type InboxTab = "unassigned" | "mine" | "all" | "closed" | "archived" | "ai";
 
@@ -93,6 +95,10 @@ export interface InboxFiltersValue {
   tagMode?: ModoDeEtiqueta;
   /** A aba "Grupos" (Task 10): manda `is_group=true` na listagem. */
   onlyGroups?: boolean;
+  /** Datas locais escolhidas no navegador; o layout converte os limites para UTC. */
+  dataDe?: string;
+  dataAte?: string;
+  ordem?: OrdemDasConversas;
 }
 
 interface Props {
@@ -392,6 +398,13 @@ export function InboxFilters({ value, onChange }: Props) {
               aria-label={t("Buscar conversas")}
             />
           </div>
+          <FiltroDataConversas
+            value={{ dataDe: value.dataDe, dataAte: value.dataAte, ordem: value.ordem }}
+            fila={value.tab === "unassigned"}
+            onChange={(next) => onChange({ ...value, ...next })}
+          />
+        </div>
+        <div className="flex items-center gap-2">
           {/* Botão pressionável em vez de Switch: o filtro vive na mesma linha
               da busca, e o Switch com rótulo pedia uma linha inteira só para
               si numa coluna de 280px. */}
