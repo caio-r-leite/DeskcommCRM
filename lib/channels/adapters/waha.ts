@@ -6,7 +6,9 @@
  * Nenhuma regra de negócio mora neste arquivo (ver `ChannelAdapter` em ../types).
  */
 import { wahaContactPayload } from "@/lib/waha/contact-card";
+import { env } from "@/lib/env";
 import { fetchWahaMedia } from "@/lib/messaging/media/waha-source";
+import { urlDoSupabaseNoServidor } from "@/lib/supabase/url-do-servidor";
 import { getWahaClient } from "@/lib/waha/client";
 import { wahaSendPlanFor } from "@/lib/waha/media-send";
 import {
@@ -43,6 +45,33 @@ import type { ChannelAdapter, ChannelHealth, OutboundEnvelope, RecipientInput } 
 export function statusHttpDoErroWaha(msg: string): number | null {
   const m = /^waha_(?:[a-z]+_)?(\d{3})\b/.exec(msg);
   return m ? Number(m[1]) : null;
+}
+
+/**
+ * O link assinado precisa ser alcançável por quem BAIXA a mídia.
+ *
+ * No stack local, a origem pública é `127.0.0.1`: funciona no navegador, mas
+ * dentro do contêiner do WAHA aponta para o próprio contêiner. Quando a
+ * instalação declarou `SUPABASE_SERVER_URL`, ela é justamente a rota que os
+ * serviços do servidor compartilham. A troca fica aqui, na fronteira do WAHA:
+ * canais externos continuam recebendo a URL pública.
+ */
+export function urlDeMidiaAcessivelAoWaha(
+  urlAssinada: string,
+  urlPublica: string,
+  urlDoServidor: string,
+): string {
+  try {
+    const assinada = new URL(urlAssinada);
+    const publica = new URL(urlPublica);
+    const servidor = new URL(urlDoServidor);
+    if (assinada.origin !== publica.origin) return urlAssinada;
+    assinada.protocol = servidor.protocol;
+    assinada.host = servidor.host;
+    return assinada.toString();
+  } catch {
+    return urlAssinada;
+  }
 }
 
 /**
@@ -146,7 +175,10 @@ export const wahaAdapter: ChannelAdapter = {
    * `check-exists` nas duas grafias do nono dígito; só JID de telefone serve
    * (ver `phoneJidDigitsFromCheckResult`). Transporte não configurado é `null`.
    */
-  async resolveRegisteredPhone(input: { sessionRef: string; phone: string }): Promise<string | null> {
+  async resolveRegisteredPhone(input: {
+    sessionRef: string;
+    phone: string;
+  }): Promise<string | null> {
     const client = getWahaClient();
     if (!client) return null;
     return resolvePhoneJidDigitsForCall(client, input.sessionRef, input.phone);
@@ -292,11 +324,15 @@ export const wahaAdapter: ChannelAdapter = {
       res = await client.sendContactVcard(envelope.sessionRef, to, [contact]);
     } else if (envelope.media) {
       await envelope.beforeSend?.();
-      res = await client.sendMedia(
-        envelope.sessionRef,
-        to,
-        wahaSendPlanFor(envelope.kind, envelope.media),
-      );
+      const media = {
+        ...envelope.media,
+        url: urlDeMidiaAcessivelAoWaha(
+          envelope.media.url,
+          env.NEXT_PUBLIC_SUPABASE_URL,
+          urlDoSupabaseNoServidor(env.SUPABASE_SERVER_URL, env.NEXT_PUBLIC_SUPABASE_URL),
+        ),
+      };
+      res = await client.sendMedia(envelope.sessionRef, to, wahaSendPlanFor(envelope.kind, media));
     } else {
       await envelope.beforeSend?.();
       res = await client.sendMessage(

@@ -591,28 +591,6 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
             onPick={escolherArquivo}
             onPickContact={mode === "reply" ? () => setContactPickerOpen(true) : undefined}
           />
-          {mode === "reply" && (
-            <Button
-              type="button"
-              variant={quickMenuOpen ? "secondary" : "ghost"}
-              size="icon"
-              className="h-9 w-9 shrink-0"
-              disabled={respostaBarrada || templateMediaLoading}
-              aria-label={t("Respostas rápidas")}
-              title={t("Respostas rápidas")}
-              onClick={() => {
-                if (onOpenQuickReplies) {
-                  onOpenQuickReplies();
-                  setQuickMenuOpen(false);
-                  return;
-                }
-                setQuickMenuOpen((open) => !open);
-                setMenuDismissed(false);
-              }}
-            >
-              <Lightning className="size-4" weight="fill" aria-hidden />
-            </Button>
-          )}
           <EmojiButton
             disabled={isDisabled}
             onPick={(emoji) => {
@@ -689,6 +667,28 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
             disabled={mode === "note" ? isDisabled : respostaBarrada}
             aria-label={t("Mensagem")}
           />
+          {mode === "reply" && (
+            <Button
+              type="button"
+              variant={quickMenuOpen ? "secondary" : "ghost"}
+              size="icon"
+              className="h-9 w-9 shrink-0"
+              disabled={respostaBarrada || templateMediaLoading}
+              aria-label={t("Respostas rápidas")}
+              title={t("Respostas rápidas")}
+              onClick={() => {
+                if (onOpenQuickReplies) {
+                  onOpenQuickReplies();
+                  setQuickMenuOpen(false);
+                  return;
+                }
+                setQuickMenuOpen((open) => !open);
+                setMenuDismissed(false);
+              }}
+            >
+              <Lightning className="size-4" weight="fill" aria-hidden />
+            </Button>
+          )}
           {text.trim() || mode === "note" ? (
             <Button
               type="button"

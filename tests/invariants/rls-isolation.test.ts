@@ -803,6 +803,23 @@ describe("RLS tenant isolation (fn_user_org_ids pattern)", () => {
     });
   }
 
+  it("snapshot de resposta rápida recusa organization_id diferente da execução", () => {
+    const executionA = sql(
+      `select id from public.message_template_executions where organization_id = '${ORG_A}' limit 1;`,
+    );
+    expect(executionA).toMatch(/^[0-9a-f-]{36}$/);
+    expect(() =>
+      sql(`
+        set role authenticated;
+        select set_config('request.jwt.claims', '{"sub":"${USER_A}"}', false);
+        insert into public.message_template_execution_steps
+          (organization_id, execution_id, position, action_type, payload)
+        values
+          ('${ORG_B}', '${executionA}', 98, 'text', '{"body":"tenant mismatch"}'::jsonb);
+      `),
+    ).toThrow();
+  });
+
   it("ai_reply_drafts: org B lê sua sugestão e não lê a de A (direção inversa)", () => {
     expect(
       countAs(

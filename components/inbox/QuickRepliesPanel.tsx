@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
@@ -60,6 +61,11 @@ type ExecutionStep = {
   error_message?: string | null;
 };
 
+/** A API de mensagem aceita legenda ausente; string vazia falha na validação. */
+export function optionalMediaCaption(value: unknown): string | undefined {
+  return String(value ?? "").trim() || undefined;
+}
+
 function stepLabel(
   step: Pick<
     MessageTemplateStep,
@@ -103,6 +109,7 @@ export function QuickRepliesPanel({
   onClose,
 }: Props) {
   const t = useT();
+  const qc = useQueryClient();
   const templates = useMessageTemplates();
   const categoryQuery = useMessageTemplateCategories();
   const [query, setQuery] = React.useState("");
@@ -112,7 +119,8 @@ export function QuickRepliesPanel({
   const [category, setCategory] = React.useState<string | null>(null);
   const [selected, setSelected] = React.useState<MessageTemplate | null>(null);
   const [preview, setPreview] = React.useState<SnapshotStep[]>([]);
-  const [running, setRunning] = React.useState(false);
+  const [runningTemplateId, setRunningTemplateId] = React.useState<string | null>(null);
+  const running = runningTemplateId !== null;
   const [execution, setExecution] = React.useState<{ id: string; steps: ExecutionStep[] } | null>(
     null,
   );
@@ -154,19 +162,21 @@ export function QuickRepliesPanel({
     return result;
   }, [templates.data, query, filter, category]);
 
-  function openPreview(template: MessageTemplate) {
+  function previewFor(template: MessageTemplate): SnapshotStep[] {
     const contato: TemplateContact = {
       name: contactName ?? null,
       displayName: contactDisplayName ?? null,
     };
+    return template.steps.map((step) => ({
+      ...step,
+      enabled: true,
+      body: interpolateTemplate(step.body, contato),
+    }));
+  }
+
+  function openPreview(template: MessageTemplate) {
     setSelected(template);
-    setPreview(
-      template.steps.map((step) => ({
-        ...step,
-        enabled: true,
-        body: interpolateTemplate(step.body, contato),
-      })),
-    );
+    setPreview(previewFor(template));
     setExecution(null);
   }
 
@@ -185,11 +195,16 @@ export function QuickRepliesPanel({
     await report(executionId, step.id, { status: "running" });
     const payload = step.payload;
     if (step.action_type === "text") {
-      await apiClient.post(
+      const sent = await apiClient.post<{
+        data: { status: string; error_message?: string | null };
+      }>(
         "/api/v1/messages",
         { conversation_id: conversationId, type: "text", body: String(payload.body ?? "") },
         { idempotencyKey: step.idempotency_key },
       );
+      if (sent.data.status === "failed") {
+        throw new Error(sent.data.error_message || t("A mensagem não foi entregue ao canal."));
+      }
     } else if (step.action_type === "image" || step.action_type === "video") {
       const download = await fetch(
         `/api/v1/message-template-executions/${executionId}/steps/${step.id}/media`,
@@ -206,11 +221,13 @@ export function QuickRepliesPanel({
         data?: { storage_path: string; media_mime: string; media_size_bytes: number; kind: string };
       };
       if (!upload.ok || !uploaded.data) throw new Error(t("Não foi possível preparar a mídia."));
-      await apiClient.post(
+      const sent = await apiClient.post<{
+        data: { status: string; error_message?: string | null };
+      }>(
         "/api/v1/messages",
         {
           conversation_id: conversationId,
-          body: String(payload.body ?? ""),
+          body: optionalMediaCaption(payload.body),
           type: uploaded.data.kind,
           media_storage_path: uploaded.data.storage_path,
           media_mime: uploaded.data.media_mime,
@@ -218,6 +235,9 @@ export function QuickRepliesPanel({
         },
         { idempotencyKey: step.idempotency_key },
       );
+      if (sent.data.status === "failed") {
+        throw new Error(sent.data.error_message || t("A mídia não foi entregue ao canal."));
+      }
     } else if (step.action_type === "wait") {
       await new Promise((resolve) =>
         window.setTimeout(resolve, Math.min(Number(payload.wait_seconds ?? 0), 3600) * 1000),
@@ -237,6 +257,11 @@ export function QuickRepliesPanel({
         await apiClient.patch(`/api/v1/conversations/${conversationId}`, {
           tags: [...currentTags, tag],
         });
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["conversations"] }),
+        qc.invalidateQueries({ queryKey: ["conversation", conversationId] }),
+        qc.invalidateQueries({ queryKey: ["conversation-tag-vocabulary"] }),
+      ]);
     } else {
       const summary = await apiClient.get<{
         data: { leads: Array<{ id: string; pipeline_id: string; status: string }> };
@@ -271,39 +296,44 @@ export function QuickRepliesPanel({
     await report(executionId, step.id, { status: "succeeded" });
   }
 
-  async function run() {
-    if (!selected || running) return;
+  async function run(
+    template: MessageTemplate | null = selected,
+    prepared: SnapshotStep[] = preview,
+    closePreviewOnSuccess = true,
+  ) {
+    if (!template || running) return;
     if (status === "closed" || status === "archived") {
       toast.error(t("Reabra a conversa antes de enviar."));
       return;
     }
-    const enabled = preview.filter((step) => step.enabled);
+    const enabled = prepared.filter((step) => step.enabled);
     if (!enabled.length) {
       toast.error(t("Mantenha ao menos um passo."));
       return;
     }
-    setRunning(true);
-    let activeExecution: { id: string; steps: ExecutionStep[] } | null = execution
-      ? { ...execution, steps: execution.steps.map((step) => ({ ...step })) }
+    setRunningTemplateId(template.id);
+    const previewExecution = selected?.id === template.id ? execution : null;
+    let activeExecution: { id: string; steps: ExecutionStep[] } | null = previewExecution
+      ? { ...previewExecution, steps: previewExecution.steps.map((step) => ({ ...step })) }
       : null;
     try {
       if (!activeExecution) {
         const created = await apiClient.post<{ data: { id: string; steps: ExecutionStep[] } }>(
           "/api/v1/message-template-executions",
           {
-            template_id: selected.id,
+            template_id: template.id,
             conversation_id: conversationId,
             steps: enabled.map((step) => ({ id: step.id, body: step.body })),
           },
         );
         activeExecution = created.data;
-        setExecution(activeExecution);
+        if (selected?.id === template.id) setExecution(activeExecution);
       } else {
         const fresh = await apiClient.get<{ data: { id: string; steps: ExecutionStep[] } }>(
           `/api/v1/message-template-executions/${activeExecution.id}`,
         );
         activeExecution = fresh.data;
-        setExecution(activeExecution);
+        if (selected?.id === template.id) setExecution(activeExecution);
       }
       for (const step of activeExecution.steps.filter(
         (item) => item.status !== "succeeded" && item.status !== "skipped",
@@ -316,7 +346,7 @@ export function QuickRepliesPanel({
               item.id === step.id ? { ...item, status: "succeeded", error_message: null } : item,
             ),
           };
-          setExecution(activeExecution);
+          if (selected?.id === template.id) setExecution(activeExecution);
         } catch (error) {
           const message =
             error instanceof ApiError
@@ -334,15 +364,21 @@ export function QuickRepliesPanel({
               item.id === step.id ? { ...item, status: "failed", error_message: message } : item,
             ),
           };
-          setExecution(activeExecution);
+          if (selected?.id === template.id) setExecution(activeExecution);
           throw error;
         }
       }
       await apiClient.patch(`/api/v1/message-template-executions/${activeExecution.id}`, {
         status: "succeeded",
       });
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["message-templates"] }),
+        qc.invalidateQueries({ queryKey: ["messages", conversationId] }),
+        qc.invalidateQueries({ queryKey: ["conversations"] }),
+        qc.invalidateQueries({ queryKey: ["conversation", conversationId] }),
+      ]);
       toast.success(t("Roteiro concluído."));
-      setSelected(null);
+      if (closePreviewOnSuccess) setSelected(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : t("O roteiro foi interrompido.");
       toast.error(message);
@@ -354,14 +390,20 @@ export function QuickRepliesPanel({
           })
           .catch(() => undefined);
     } finally {
-      setRunning(false);
+      setRunningTemplateId(null);
     }
+  }
+
+  function sendNow(template: MessageTemplate) {
+    if (running) return;
+    setExecution(null);
+    void run(template, previewFor(template), false);
   }
 
   return (
     <>
       <aside
-        className="flex h-full min-h-0 w-full flex-col border-l bg-background"
+        className="flex h-full min-h-0 w-[26rem] max-w-[100vw] flex-col border-l bg-background"
         data-testid="quick-replies-panel"
       >
         <div className="flex items-center gap-2 border-b px-3 py-3">
@@ -421,31 +463,77 @@ export function QuickRepliesPanel({
           )}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
-          {visible.map((template) => (
-            <div key={template.id} className="mb-2 rounded-md border p-2">
-              <div className="flex items-start gap-2">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-1">
-                    <span className="text-sm font-medium">{template.title}</span>
-                    {template.category && <Badge variant="outline">{template.category.name}</Badge>}
+          {visible.map((template) => {
+            const sending = runningTemplateId === template.id;
+            return (
+              <div
+                key={template.id}
+                data-testid={`quick-reply-card-${template.id}`}
+                data-sending={sending ? "true" : "false"}
+                role="button"
+                tabIndex={running ? -1 : 0}
+                aria-disabled={running}
+                aria-label={`${t("Enviar agora")}: ${template.title}`}
+                onClick={() => sendNow(template)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    sendNow(template);
+                  }
+                }}
+                className={`mb-2 cursor-pointer rounded-lg border p-2.5 transition-all duration-200 hover:border-primary/60 hover:bg-primary/5 hover:shadow-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none ${
+                  sending ? "scale-[0.99] border-primary bg-primary/10 opacity-75" : ""
+                } ${running && !sending ? "pointer-events-none opacity-50" : ""}`}
+              >
+                <div className="flex items-start gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1">
+                      <span className="text-sm font-medium">{template.title}</span>
+                      {template.category && (
+                        <Badge variant="outline">{template.category.name}</Badge>
+                      )}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {template.steps.length} {t("envio(s)/ação(ões)")} · {template.usage_count}{" "}
+                      {t("uso(s)")}
+                    </p>
                   </div>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {template.steps.length} {t("envio(s)/ação(ões)")} · {template.usage_count}{" "}
-                    {t("uso(s)")}
-                  </p>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    title={t("Revisar e enviar")}
+                    aria-label={t("Revisar e enviar")}
+                    disabled={running}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openPreview(template);
+                    }}
+                  >
+                    <Eye />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    title={t("Enviar agora")}
+                    aria-label={`${t("Enviar agora")}: ${template.title}`}
+                    disabled={running}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      sendNow(template);
+                    }}
+                  >
+                    {sending ? <CircleNotch className="animate-spin" /> : <PaperPlaneTilt />}
+                  </Button>
                 </div>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  title={t("Revisar e enviar")}
-                  aria-label={t("Revisar e enviar")}
-                  onClick={() => openPreview(template)}
-                >
-                  <Eye />
-                </Button>
+                {sending && (
+                  <div className="mt-2 flex items-center gap-2 text-xs font-medium text-primary">
+                    <CircleNotch className="size-3.5 animate-spin" />
+                    {t("Enviando e executando ações…")}
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
           {!visible.length && (
             <p className="p-4 text-center text-sm text-muted-foreground">
               {t("Nenhuma resposta encontrada.")}
@@ -494,21 +582,41 @@ export function QuickRepliesPanel({
                     ) : null}
                   </div>
                   {step.enabled && ["text", "image", "video"].includes(step.action_type) && (
-                    <Textarea
-                      className="mt-2"
-                      value={step.body}
-                      disabled={running || !!execution}
-                      placeholder={
-                        step.action_type === "text" ? t("Mensagem") : t("Legenda opcional")
-                      }
-                      onChange={(e) =>
-                        setPreview((items) =>
-                          items.map((item) =>
-                            item.id === step.id ? { ...item, body: e.target.value } : item,
-                          ),
-                        )
-                      }
-                    />
+                    <div className="mt-2 space-y-2">
+                      {(step.action_type === "image" || step.action_type === "video") && (
+                        <div className="overflow-hidden rounded-md border bg-muted/30">
+                          {step.action_type === "image" ? (
+                            // eslint-disable-next-line @next/next/no-img-element -- mídia autenticada e dinâmica
+                            <img
+                              src={`/api/v1/message-templates/scripts/${step.template_id}/media?step_id=${step.id}`}
+                              alt={step.media_filename || t("Prévia da foto")}
+                              className="max-h-56 w-full object-contain"
+                            />
+                          ) : (
+                            <video
+                              src={`/api/v1/message-templates/scripts/${step.template_id}/media?step_id=${step.id}`}
+                              controls
+                              preload="metadata"
+                              className="max-h-56 w-full"
+                            />
+                          )}
+                        </div>
+                      )}
+                      <Textarea
+                        value={step.body}
+                        disabled={running || !!execution}
+                        placeholder={
+                          step.action_type === "text" ? t("Mensagem") : t("Legenda opcional")
+                        }
+                        onChange={(e) =>
+                          setPreview((items) =>
+                            items.map((item) =>
+                              item.id === step.id ? { ...item, body: e.target.value } : item,
+                            ),
+                          )
+                        }
+                      />
+                    </div>
                   )}{" "}
                   {progress?.error_message && (
                     <p className="mt-1 text-xs text-destructive">{progress.error_message}</p>
@@ -521,7 +629,10 @@ export function QuickRepliesPanel({
             <Button variant="ghost" disabled={running} onClick={() => setSelected(null)}>
               {t("Cancelar")}
             </Button>
-            <Button disabled={running || !preview.some((step) => step.enabled)} onClick={run}>
+            <Button
+              disabled={running || !preview.some((step) => step.enabled)}
+              onClick={() => void run()}
+            >
               {running ? (
                 <>
                   <CircleNotch className="animate-spin" />

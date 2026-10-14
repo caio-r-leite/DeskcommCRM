@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn(), get: vi.fn() }));
@@ -55,30 +56,56 @@ vi.mock("@/hooks/inbox/useMessageTemplates", () => ({
             media_filename: null,
             action_config: {},
           },
+          {
+            id: "55555555-5555-4555-8555-555555555555",
+            template_id: "11111111-1111-4111-8111-111111111111",
+            position: 2,
+            action_type: "image",
+            body: "Catálogo",
+            wait_seconds: 0,
+            media_mime: "image/jpeg",
+            media_size_bytes: 100,
+            media_filename: "catalogo.jpg",
+            action_config: {},
+          },
         ],
       },
     ],
   }),
 }));
 
-import { QuickRepliesPanel } from "./QuickRepliesPanel";
+import { optionalMediaCaption, QuickRepliesPanel } from "./QuickRepliesPanel";
 
-describe("painel de respostas rápidas", () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  it("abre pelo olho e editar a prévia não envia nem altera o cadastro", () => {
-    render(
+function renderPanel() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
       <QuickRepliesPanel
         conversationId="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
         contactId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
         status="open"
         tags={[]}
         onClose={() => undefined}
-      />,
-    );
+      />
+    </QueryClientProvider>,
+  );
+}
+
+describe("painel de respostas rápidas", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("omite legenda vazia para a API aceitar foto sem texto", () => {
+    expect(optionalMediaCaption("")).toBeUndefined();
+    expect(optionalMediaCaption("   ")).toBeUndefined();
+    expect(optionalMediaCaption("  Catálogo  ")).toBe("Catálogo");
+  });
+
+  it("abre pelo olho e editar a prévia não envia nem altera o cadastro", () => {
+    renderPanel();
     expect(screen.getByTestId("quick-replies-panel")).toBeTruthy();
     expect(screen.getAllByText("Comercial")).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "Revisar e enviar" }));
+    expect(screen.getByRole("img", { name: "catalogo.jpg" })).toBeTruthy();
     const field = screen.getByDisplayValue("Mensagem cadastrada");
     fireEvent.change(field, { target: { value: "Edição só deste envio" } });
     expect(
@@ -90,5 +117,46 @@ describe("painel de respostas rápidas", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
     fireEvent.click(screen.getByRole("button", { name: "Revisar e enviar" }));
     expect(screen.getByDisplayValue("Mensagem cadastrada")).toBeTruthy();
+  });
+
+  it("envia ao clicar no card e registra falha real devolvida pelo canal", async () => {
+    h.post.mockImplementation((url: string) => {
+      if (url === "/api/v1/message-template-executions") {
+        return Promise.resolve({
+          data: {
+            id: "66666666-6666-4666-8666-666666666666",
+            steps: [
+              {
+                id: "77777777-7777-4777-8777-777777777777",
+                status: "pending",
+                action_type: "text",
+                payload: { body: "Mensagem cadastrada" },
+                idempotency_key: "teste",
+              },
+            ],
+          },
+        });
+      }
+      if (url === "/api/v1/messages") {
+        return Promise.resolve({ data: { status: "failed", error_message: "channel_500" } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    h.patch.mockResolvedValue({ data: {} });
+    renderPanel();
+
+    fireEvent.click(screen.getByTestId("quick-reply-card-11111111-1111-4111-8111-111111111111"));
+
+    expect(
+      screen
+        .getByTestId("quick-reply-card-11111111-1111-4111-8111-111111111111")
+        .getAttribute("data-sending"),
+    ).toBe("true");
+    await waitFor(() =>
+      expect(h.patch).toHaveBeenCalledWith(
+        "/api/v1/message-template-executions/66666666-6666-4666-8666-666666666666",
+        expect.objectContaining({ status: "failed" }),
+      ),
+    );
   });
 });

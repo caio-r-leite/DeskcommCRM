@@ -30,7 +30,7 @@ import { InboxKeyboardShortcuts } from "./InboxKeyboardShortcuts";
 import { ShortcutsHelpDialog } from "./ShortcutsHelpDialog";
 import { OpenConversationProvider } from "@/hooks/notifications/OpenConversationContext";
 // ADR-05: ícone de feature sai do mapa canônico, nunca do pacote direto.
-import { CaretLeft, ChatCircle, IdentificationCard, MagnifyingGlass, X } from "@/lib/ui/icons";
+import { CaretLeft, ChatCircle, IdentificationCard, Lightning, MagnifyingGlass, X } from "@/lib/ui/icons";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
@@ -76,7 +76,6 @@ export function colunasDoCelular(temSelecao: boolean): { lista: string; conversa
     conversa: temSelecao ? "flex" : "hidden md:flex",
   };
 }
-
 /**
  * O QUE CADA ABA SIGNIFICA. Exportada porque é a definição em si — o defeito
  * que este mapa já teve (Minhas mostrando tudo que o atendente fechou) não
@@ -814,17 +813,32 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
       </div>
 
       {respostasAbertas && selectedConversation?.contacts?.id && (
-        <div className="absolute inset-y-0 right-0 z-40 w-[min(26rem,100%)] shadow-2xl">
-          <QuickRepliesPanel
-            key={selectedConversation.id}
-            conversationId={selectedConversation.id}
-            contactId={selectedConversation.contacts.id}
-            contactName={selectedConversation.contacts.name}
-            contactDisplayName={selectedConversation.contacts.display_name}
-            status={selectedConversation.status}
-            tags={selectedConversation.tags ?? []}
-            onClose={() => setRespostasAbertas(false)}
-          />
+        <div className="group/quick absolute inset-y-0 right-0 z-40 w-full overflow-hidden shadow-2xl transition-[width] duration-200 ease-out md:w-14 md:hover:w-[26rem] md:focus-within:w-[26rem]">
+          <button
+            type="button"
+            className="absolute inset-0 hidden w-14 flex-col items-center justify-center gap-2 border-l bg-background/95 text-primary backdrop-blur transition-opacity group-hover/quick:pointer-events-none group-hover/quick:opacity-0 group-focus-within/quick:pointer-events-none group-focus-within/quick:opacity-0 md:flex"
+            aria-label={t("Expandir respostas rápidas")}
+            title={t("Passe o mouse para abrir as respostas rápidas")}
+          >
+            <span className="flex size-9 items-center justify-center rounded-full bg-primary/10">
+              <Lightning className="size-5" weight="fill" aria-hidden />
+            </span>
+            <span className="text-[10px] font-semibold tracking-wide [writing-mode:vertical-rl]">
+              {t("Respostas rápidas")}
+            </span>
+          </button>
+          <div className="flex h-full justify-end transition-opacity md:pointer-events-none md:invisible md:opacity-0 md:group-hover/quick:pointer-events-auto md:group-hover/quick:visible md:group-hover/quick:opacity-100 md:group-focus-within/quick:pointer-events-auto md:group-focus-within/quick:visible md:group-focus-within/quick:opacity-100">
+            <QuickRepliesPanel
+              key={selectedConversation.id}
+              conversationId={selectedConversation.id}
+              contactId={selectedConversation.contacts.id}
+              contactName={selectedConversation.contacts.name}
+              contactDisplayName={selectedConversation.contacts.display_name}
+              status={selectedConversation.status}
+              tags={selectedConversation.tags ?? []}
+              onClose={() => setRespostasAbertas(false)}
+            />
+          </div>
         </div>
       )}
 

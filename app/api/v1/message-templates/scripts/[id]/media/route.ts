@@ -6,6 +6,7 @@ import { requireSupportWrite } from "@/lib/impersonate/support";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { MAX_MEDIA_BYTES } from "@/lib/messaging/media/types";
+import { isTemplateMediaPathOwnedBy } from "@/lib/messaging/media/upload-validation";
 
 export async function POST(
   req: NextRequest,
@@ -70,4 +71,48 @@ export async function POST(
     return fail("internal_error", "Erro ao salvar passo de mídia.", 500, { requestId });
   }
   return ok(data, { requestId, status: 201 });
+}
+
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+): Promise<Response> {
+  const requestId = randomUUID();
+  const authz = await requireRole("agent", { requestId, resource: "message_templates" });
+  if (!authz.ok) return authz.response;
+  const { id } = await params;
+  const stepId = req.nextUrl.searchParams.get("step_id");
+  if (!stepId) return fail("validation_failed", "Passo obrigatório.", 422, { requestId });
+
+  const supabase = await createClient();
+  const { data: step, error } = await supabase
+    .from("message_template_steps")
+    .select("media_storage_path, media_mime, media_size_bytes, media_filename")
+    .eq("id", stepId)
+    .eq("template_id", id)
+    .eq("organization_id", authz.org.orgId)
+    .maybeSingle();
+  if (
+    error ||
+    !step?.media_storage_path ||
+    !step.media_mime ||
+    !isTemplateMediaPathOwnedBy(step.media_storage_path, authz.org.orgId)
+  ) {
+    return fail("not_found", "Arquivo não encontrado.", 404, { requestId });
+  }
+  const { data: blob, error: downloadError } = await createAdminClient()
+    .storage.from("whatsapp-media")
+    .download(step.media_storage_path);
+  if (downloadError || !blob) {
+    return fail("not_found", "Arquivo não encontrado.", 404, { requestId });
+  }
+  return new Response(blob, {
+    headers: {
+      "Content-Type": step.media_mime,
+      "Content-Length": String(step.media_size_bytes ?? blob.size),
+      "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(step.media_filename ?? "arquivo")}`,
+      "Cache-Control": "private, no-store",
+      "X-Request-Id": requestId,
+    },
+  });
 }
