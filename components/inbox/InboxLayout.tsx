@@ -30,7 +30,14 @@ import { InboxKeyboardShortcuts } from "./InboxKeyboardShortcuts";
 import { ShortcutsHelpDialog } from "./ShortcutsHelpDialog";
 import { OpenConversationProvider } from "@/hooks/notifications/OpenConversationContext";
 // ADR-05: ícone de feature sai do mapa canônico, nunca do pacote direto.
-import { CaretLeft, ChatCircle, IdentificationCard, Lightning, MagnifyingGlass, X } from "@/lib/ui/icons";
+import {
+  CaretLeft,
+  ChatCircle,
+  IdentificationCard,
+  Lightning,
+  MagnifyingGlass,
+  X,
+} from "@/lib/ui/icons";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
@@ -38,7 +45,11 @@ import { comandosDaFila } from "@/lib/inbox/comando-da-conversa";
 import type { AvisoDeRascunho } from "@/lib/inbox/rascunho-sugerido";
 import { buscaValeConsulta } from "@/lib/inbox/termo-de-busca";
 import { useAutomaticoAtivo } from "@/hooks/ai/useAutomaticoAtivo";
-import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
+import type {
+  CSSProperties,
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+} from "react";
 import {
   LIMITES_FICHA,
   LIMITES_LISTA,
@@ -51,6 +62,10 @@ import {
   type Faixa,
   type LargurasDoInbox,
 } from "@/lib/inbox/larguras-do-inbox";
+import {
+  alternarPainelDeRespostas,
+  type EstadoDoPainelDeRespostas,
+} from "@/lib/inbox/estado-painel-respostas";
 
 /**
  * QUAL COLUNA APARECE NO CELULAR — as duas saem da MESMA pergunta.
@@ -76,6 +91,7 @@ export function colunasDoCelular(temSelecao: boolean): { lista: string; conversa
     conversa: temSelecao ? "flex" : "hidden md:flex",
   };
 }
+
 /**
  * O QUE CADA ABA SIGNIFICA. Exportada porque é a definição em si — o defeito
  * que este mapa já teve (Minhas mostrando tudo que o atendente fechou) não
@@ -210,7 +226,9 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
   const [helpOpen, setHelpOpen] = useState(false);
   /** A ficha do contato como painel deslizante — só existe abaixo do `xl`. */
   const [fichaAberta, setFichaAberta] = useState(false);
-  const [respostasAbertas, setRespostasAbertas] = useState(false);
+  const [estadoDasRespostas, setEstadoDasRespostas] =
+    useState<EstadoDoPainelDeRespostas>("fechado");
+  const [respostasSobMouse, setRespostasSobMouse] = useState(false);
   /**
    * A busca dentro da conversa (#1793) pertence à CONVERSA em que foi aberta.
    * Guardar o id junto fecha a busca em qualquer troca — clique, atalho j/k,
@@ -268,9 +286,7 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
       // `showApiError`, então digitar a primeira letra de qualquer busca faria
       // piscar um erro na cara de quem digita. A regra é a MESMA que o schema
       // usa (`lib/inbox/termo-de-busca.ts`) — nunca repetida aqui.
-      search: buscaValeConsulta(filterValue.search)
-        ? filterValue.search
-        : undefined,
+      search: buscaValeConsulta(filterValue.search) ? filterValue.search : undefined,
       channel_session_id: filterValue.channel_session_id,
       tag: filterValue.tag,
       tagMode: filterValue.tagMode,
@@ -288,7 +304,6 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
       filterValue.onlyGroups,
     ],
   );
-
 
   // We need the selected conversation object for header / composer / side panel.
   // Source it from the same query the list uses to avoid an extra request.
@@ -351,22 +366,25 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
   // É um SUPERCONJUNTO do `handleSelect` do upstream — o tipo dele não aceita
   // `null`, e sem isso o botão de voltar não teria o que chamar.
   //
-  const handleSelect = useCallback((id: string | null) => {
-    if (id === selectedId) return;
-    setSelectedId(id);
-    // Sem isto, escolher "responder" numa conversa e trocar para outra levaria
-    // a citação junto — e a resposta sairia citando mensagem de outro cliente.
-    setRespondendo(null);
-    // ?id= é o formato já usado pelos atalhos do CRM. A History API mantém a
-    // seleção instantânea sem pedir um novo Server Component a cada clique.
-    const params = new URLSearchParams(searchParams.toString());
-    if (id) params.set("id", id);
-    else params.delete("id");
-    // O ?rascunho= é da conversa que ficou para trás (ver `rascunhoVivo`).
-    params.delete("rascunho");
-    const query = params.toString();
-    window.history.pushState(null, "", query ? `${pathname}?${query}` : pathname);
-  }, [selectedId, searchParams, pathname]);
+  const handleSelect = useCallback(
+    (id: string | null) => {
+      if (id === selectedId) return;
+      setSelectedId(id);
+      // Sem isto, escolher "responder" numa conversa e trocar para outra levaria
+      // a citação junto — e a resposta sairia citando mensagem de outro cliente.
+      setRespondendo(null);
+      // ?id= é o formato já usado pelos atalhos do CRM. A History API mantém a
+      // seleção instantânea sem pedir um novo Server Component a cada clique.
+      const params = new URLSearchParams(searchParams.toString());
+      if (id) params.set("id", id);
+      else params.delete("id");
+      // O ?rascunho= é da conversa que ficou para trás (ver `rascunhoVivo`).
+      params.delete("rascunho");
+      const query = params.toString();
+      window.history.pushState(null, "", query ? `${pathname}?${query}` : pathname);
+    },
+    [selectedId, searchParams, pathname],
+  );
   const handleVisibleChange = useCallback((ids: string[]) => setVisibleIds(ids), []);
   const handleFocusReply = useCallback(() => composerRef.current?.focus(), []);
   const handleClaim = useCallback(() => {
@@ -506,9 +524,7 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
         coluna === "lista"
           ? { ...base, lista: movimento.clientX - retangulo.left }
           : { ...base, ficha: retangulo.right - movimento.clientX };
-      aplicarLarguras(
-        resolverLarguras({ ...pedido, larguraContainer: retangulo.width, temFicha }),
-      );
+      aplicarLarguras(resolverLarguras({ ...pedido, larguraContainer: retangulo.width, temFicha }));
     };
     const aoSoltar = () => {
       window.removeEventListener("pointermove", aoMover);
@@ -583,34 +599,34 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
   // deixava. Margem de 2px não é margem, é sorte.
   return (
     <OpenConversationProvider conversationId={selectedId}>
-    <div
-      ref={gradeRef}
-      className="grid relative h-[calc(100dvh-3.5rem-var(--space-6)-max(var(--space-6),var(--rodape-ocupado,0px)))] w-full grid-cols-1 md:grid-cols-[300px_1fr] xl:grid-cols-[272px_1fr_296px] 2xl:grid-cols-[300px_1fr_320px]"
-      style={estiloDaGrade}
-      /*
-       * O ESTADO DO TEMPO REAL, LEGÍVEL DE FORA — mesmo par que o dossiê do lead
-       * já publica (`LeadDossier`), e pela mesma razão: quando a entrega morre,
-       * nenhuma tela avisa. Foi o único achado que atravessou o dia intacto
-       * quando o realtime quebrou pela primeira vez, e voltou a morder agora.
-       *
-       * `divergencias` é o que a rede de segurança contou: refetch trouxe estado
-       * novo que o canal NÃO tinha entregue. Zero com o canal vivo; subindo é a
-       * assinatura de canal que assina e não entrega — o defeito que não grita.
-       *
-       * ⚠️ `data-realtime-status` vem do STATUS do canal, não de um objeto que
-       * existe sempre. A primeira versão desta linha derivava o valor de
-       * `listQ.seguranca`, que nunca é nulo — ela diria `ativo` inclusive com o
-       * canal morto. Controle decorativo é pior que controle nenhum: mente com
-       * cara de instrumento.
-       *
-       * Atributo de dado e não texto na tela de propósito: quem lê isto é o
-       * teste e quem depura, não o atendente. Pôr um aviso permanente na cara de
-       * quem atende seria ruído; esconder o sinal do todo é o que custou o dia.
-       */
-      data-realtime-status={listQ.realtimeStatus}
-      data-refetch-divergencias={listQ.seguranca?.divergencias ?? 0}
-    >
-      {/*
+      <div
+        ref={gradeRef}
+        className="relative grid h-[calc(100dvh-3.5rem-var(--space-6)-max(var(--space-6),var(--rodape-ocupado,0px)))] w-full grid-cols-1 md:grid-cols-[300px_1fr] xl:grid-cols-[272px_1fr_296px] 2xl:grid-cols-[300px_1fr_320px]"
+        style={estiloDaGrade}
+        /*
+         * O ESTADO DO TEMPO REAL, LEGÍVEL DE FORA — mesmo par que o dossiê do lead
+         * já publica (`LeadDossier`), e pela mesma razão: quando a entrega morre,
+         * nenhuma tela avisa. Foi o único achado que atravessou o dia intacto
+         * quando o realtime quebrou pela primeira vez, e voltou a morder agora.
+         *
+         * `divergencias` é o que a rede de segurança contou: refetch trouxe estado
+         * novo que o canal NÃO tinha entregue. Zero com o canal vivo; subindo é a
+         * assinatura de canal que assina e não entrega — o defeito que não grita.
+         *
+         * ⚠️ `data-realtime-status` vem do STATUS do canal, não de um objeto que
+         * existe sempre. A primeira versão desta linha derivava o valor de
+         * `listQ.seguranca`, que nunca é nulo — ela diria `ativo` inclusive com o
+         * canal morto. Controle decorativo é pior que controle nenhum: mente com
+         * cara de instrumento.
+         *
+         * Atributo de dado e não texto na tela de propósito: quem lê isto é o
+         * teste e quem depura, não o atendente. Pôr um aviso permanente na cara de
+         * quem atende seria ruído; esconder o sinal do todo é o que custou o dia.
+         */
+        data-realtime-status={listQ.realtimeStatus}
+        data-refetch-divergencias={listQ.seguranca?.divergencias ?? 0}
+      >
+        {/*
         NO CELULAR, UMA COISA POR VEZ.
 
         Antes as duas colunas caíam empilhadas em `grid-cols-1`: a lista inteira
@@ -623,26 +639,23 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
         classe condicional é resolvida pelo CSS, na primeira pintura, e some no
         `md` — onde as duas colunas cabem juntas e a regra não se aplica.
       */}
-      <div
-        className={cn(
-          "h-full min-h-0 flex-col border-r border-border md:flex",
-          colunas.lista,
-        )}
-      >
-        <InboxFilters value={filterValue} onChange={setFilterValue} />
-        <div className="min-h-0 flex-1 overflow-hidden">
-          <ConversationList
-            listQuery={listQ}
-            filters={filters}
-            selectedId={selectedId}
-            onSelect={handleSelect}
-            onVisibleChange={handleVisibleChange}
-            onLimparFiltros={limparFiltrosAuxiliares}
-          />
+        <div
+          className={cn("h-full min-h-0 flex-col border-r border-border md:flex", colunas.lista)}
+        >
+          <InboxFilters value={filterValue} onChange={setFilterValue} />
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <ConversationList
+              listQuery={listQ}
+              filters={filters}
+              selectedId={selectedId}
+              onSelect={handleSelect}
+              onVisibleChange={handleVisibleChange}
+              onLimparFiltros={limparFiltrosAuxiliares}
+            />
+          </div>
         </div>
-      </div>
 
-      {/*
+        {/*
         AS DUAS COLUNAS DECIDEM PELO MESMO DADO — `selectedId`, não o objeto.
 
         A da lista some quando há `selectedId`; se esta aparecesse só quando a
@@ -654,195 +667,244 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
         escondido — deixando o dono numa tela vazia, sem sequer o botão de
         voltar, porque ele morava dentro do ramo da conversa carregada.
       */}
-      <div
-        className={cn(
-          "h-full min-h-0 min-w-0 flex-col md:flex",
-          colunas.conversa,
-        )}
-      >
-        {/*
+        <div className={cn("h-full min-h-0 min-w-0 flex-col md:flex", colunas.conversa)}>
+          {/*
           A barra do celular vive FORA do ramo da conversa carregada: o caminho
           de volta tem de existir inclusive quando não há o que mostrar — é aí
           que ele é a única saída. A porta da ficha, essa sim, depende da
           conversa, e só aparece quando há uma.
         */}
-        {selectedId && (
-          <div className="flex items-center gap-1 border-b border-border px-1 py-1 md:hidden">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-9 gap-1 px-2"
-              onClick={() => handleSelect(null)}
-            >
-              <CaretLeft size={16} />
-              {t("Conversas")}
-            </Button>
-            <div className="flex-1" />
-            {selectedConversation && (
-              <Sheet open={fichaAberta} onOpenChange={setFichaAberta}>
-                <SheetTrigger asChild>
-                  <Button variant="ghost" size="sm" className="h-9 gap-1 px-2 xl:hidden">
-                    <IdentificationCard size={16} />
-                    {t("Ficha")}
-                  </Button>
-                </SheetTrigger>
-                <SheetContent side="right" className="w-[min(22rem,90vw)] overflow-y-auto p-0">
-                  <SheetTitle className="sr-only">{t("Ficha do contato")}</SheetTitle>
-                  <CRMSidePanel conversation={selectedConversation} />
-                </SheetContent>
-              </Sheet>
-            )}
-          </div>
-        )}
-        {selectedConversation ? (
-          <>
-            {/* `key`: trocar de conversa desmonta a confirmação de Fechar/Arquivar
+          {selectedId && (
+            <div className="flex items-center gap-1 border-b border-border px-1 py-1 md:hidden">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-9 gap-1 px-2"
+                onClick={() => handleSelect(null)}
+              >
+                <CaretLeft size={16} />
+                {t("Conversas")}
+              </Button>
+              <div className="flex-1" />
+              {selectedConversation && (
+                <Sheet open={fichaAberta} onOpenChange={setFichaAberta}>
+                  <SheetTrigger asChild>
+                    <Button variant="ghost" size="sm" className="h-9 gap-1 px-2 xl:hidden">
+                      <IdentificationCard size={16} />
+                      {t("Ficha")}
+                    </Button>
+                  </SheetTrigger>
+                  <SheetContent side="right" className="w-[min(22rem,90vw)] overflow-y-auto p-0">
+                    <SheetTitle className="sr-only">{t("Ficha do contato")}</SheetTitle>
+                    <CRMSidePanel
+                      conversation={selectedConversation}
+                      assistantDisabled={
+                        supportReadonly ||
+                        selectedConversation.status === "closed" ||
+                        !!blockedReason ||
+                        !!motivoDaJanela
+                      }
+                    />
+                  </SheetContent>
+                </Sheet>
+              )}
+            </div>
+          )}
+          {selectedConversation ? (
+            <>
+              {/* `key`: trocar de conversa desmonta a confirmação de Fechar/Arquivar
                 aberta — senão o clique de dentro agiria sobre a conversa nova. */}
-            <ConversationHeader
-              key={selectedConversation.id}
-              conversation={selectedConversation}
-              onAbrirConversa={handleSelect}
-              onBuscar={() =>
-                buscaAberta
-                  ? fecharBusca()
-                  : setBusca({ conversaId: selectedConversation.id, termo: "" })
-              }
-              buscaAberta={buscaAberta}
-              botaoBuscaRef={botaoBuscaRef}
-            />
-            {buscaAberta && (
-              <div className="flex items-center gap-2 border-b border-border px-4 py-1.5">
-                <MagnifyingGlass size={16} className="shrink-0 text-muted-foreground" aria-hidden />
-                <input
-                  type="search"
-                  autoFocus
-                  className="min-w-0 flex-1 bg-transparent py-1 text-sm outline-hidden placeholder:text-muted-foreground"
-                  aria-label={t("Buscar nas mensagens carregadas")}
-                  placeholder={t("Buscar nas mensagens carregadas")}
-                  value={busca.termo}
-                  onChange={(e) => setBusca({ conversaId: busca.conversaId, termo: e.target.value })}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") fecharBusca();
+              <ConversationHeader
+                key={selectedConversation.id}
+                conversation={selectedConversation}
+                onAbrirConversa={handleSelect}
+                onBuscar={() =>
+                  buscaAberta
+                    ? fecharBusca()
+                    : setBusca({ conversaId: selectedConversation.id, termo: "" })
+                }
+                buscaAberta={buscaAberta}
+                botaoBuscaRef={botaoBuscaRef}
+              />
+              {buscaAberta && (
+                <div className="flex items-center gap-2 border-b border-border px-4 py-1.5">
+                  <MagnifyingGlass
+                    size={16}
+                    className="shrink-0 text-muted-foreground"
+                    aria-hidden
+                  />
+                  <input
+                    type="search"
+                    autoFocus
+                    className="min-w-0 flex-1 bg-transparent py-1 text-sm outline-hidden placeholder:text-muted-foreground"
+                    aria-label={t("Buscar nas mensagens carregadas")}
+                    placeholder={t("Buscar nas mensagens carregadas")}
+                    value={busca.termo}
+                    onChange={(e) =>
+                      setBusca({ conversaId: busca.conversaId, termo: e.target.value })
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") fecharBusca();
+                    }}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-11 shrink-0 px-0 lg:w-8"
+                    aria-label={t("Fechar busca")}
+                    onClick={fecharBusca}
+                  >
+                    <X size={16} aria-hidden />
+                  </Button>
+                </div>
+              )}
+              <div className="min-h-0 flex-1 overflow-hidden">
+                <ChatThread
+                  conversationId={selectedConversation.id}
+                  searchTerm={buscaAberta ? busca.termo : ""}
+                  provider={selectedConversation.channel_sessions?.provider ?? null}
+                  onResponder={setRespondendo}
+                  // O cartão da passagem escolhe o gesto a partir de quem é o dono
+                  // da conversa: sem dono convida a assumir, com outro dono diz
+                  // quem atende. Sem estes dois campos ele cairia no estado mais
+                  // conservador e ficaria mudo justamente para quem mais precisa.
+                  dono={{
+                    userId: selectedConversation.assigned_to_user_id ?? null,
+                    nome: selectedConversation.assigned_to_user_name ?? null,
                   }}
+                  contatoId={selectedConversation.contacts?.id ?? null}
                 />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-11 shrink-0 px-0 lg:w-8"
-                  aria-label={t("Fechar busca")}
-                  onClick={fecharBusca}
-                >
-                  <X size={16} aria-hidden />
-                </Button>
               </div>
-            )}
-            <div className="min-h-0 flex-1 overflow-hidden">
-              <ChatThread
+              <RetentionNotice conversationId={selectedConversation.id} />
+              {selectedConversation.contacts?.id && (
+                <NumeroForaDoAr
+                  key={`numero:${selectedConversation.id}`}
+                  conversationId={selectedConversation.id}
+                  channelSessionId={selectedConversation.channel_session_id}
+                  contactId={selectedConversation.contacts.id}
+                  contactPhone={selectedConversation.contacts.phone_number ?? null}
+                  onAbrirConversa={handleSelect}
+                />
+              )}
+              {motivoDaJanela && (
+                <JanelaFechadaAviso
+                  conversationId={selectedConversation.id}
+                  provider={selectedConversation.channel_sessions?.provider ?? null}
+                  motivo={motivoDaJanela}
+                />
+              )}
+              <Composer
+                // Trocar a chave quando o rascunho sai REMONTA o composer: o texto
+                // nasce de `useState(initialDraft)`, e só a prop mudar não o limparia.
+                // Sem rascunho a chave é fixa e a troca de conversa segue como antes.
+                key={rascunhoVivo ? `rascunho:${rascunhoVivo.conversationId}` : "composer"}
+                ref={composerRef}
                 conversationId={selectedConversation.id}
-                searchTerm={buscaAberta ? busca.termo : ""}
-                provider={selectedConversation.channel_sessions?.provider ?? null}
-                onResponder={setRespondendo}
-                // O cartão da passagem escolhe o gesto a partir de quem é o dono
-                // da conversa: sem dono convida a assumir, com outro dono diz
-                // quem atende. Sem estes dois campos ele cairia no estado mais
-                // conservador e ficaria mudo justamente para quem mais precisa.
-                dono={{
-                  userId: selectedConversation.assigned_to_user_id ?? null,
-                  nome: selectedConversation.assigned_to_user_name ?? null,
-                }}
-                contatoId={selectedConversation.contacts?.id ?? null}
+                blockedReason={supportReadonly ? "Acompanhamento somente leitura" : blockedReason}
+                janelaFechada={motivoDaJanela}
+                disabled={selectedConversation.status === "closed"}
+                contactName={selectedConversation.contacts?.name ?? null}
+                contactDisplayName={selectedConversation.contacts?.display_name}
+                respondendo={respondendo}
+                onCancelarResposta={() => setRespondendo(null)}
+                currentContactId={selectedConversation.contact_id}
+                // O aviso é DA conversa da URL: trocar de conversa dentro da inbox
+                // não pode deixar um texto sugerido no campo de outra pessoa.
+                rascunho={rascunhoVivo}
+                initialDraft={
+                  rascunhoVivo?.leitura.estado === "sugerido" ? rascunhoVivo.leitura.texto : ""
+                }
+                onOpenQuickReplies={() =>
+                  setEstadoDasRespostas((estado) => alternarPainelDeRespostas(estado))
+                }
+                quickRepliesActive={estadoDasRespostas !== "fechado"}
+              />
+            </>
+          ) : selectionNotFound ? (
+            <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
+              {t("Conversa não encontrada ou fora do seu acesso.")}
+            </div>
+          ) : (
+            <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+              <ChatCircle size={36} weight="thin" className="text-text-subtle" aria-hidden />
+              <p className="text-sm font-medium text-text-muted">{t("Selecione uma conversa")}</p>
+              <p className="text-xs text-text-muted">{t("Ou navegue com J e K")}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="hidden h-full min-h-0 min-w-0 xl:block">
+          <CRMSidePanel
+            conversation={selectedConversation}
+            assistantDisabled={
+              supportReadonly ||
+              selectedConversation?.status === "closed" ||
+              !!blockedReason ||
+              !!motivoDaJanela
+            }
+          />
+        </div>
+
+        {estadoDasRespostas !== "fechado" && selectedConversation?.contacts?.id && (
+          <div
+            className={cn(
+              "absolute inset-y-0 right-0 z-40 w-full overflow-hidden shadow-2xl transition-[width] duration-200 ease-out",
+              respostasSobMouse || estadoDasRespostas === "aberto" ? "md:w-[26rem]" : "md:w-14",
+            )}
+            data-testid="quick-replies-dock"
+            data-state={
+              respostasSobMouse || estadoDasRespostas === "aberto" ? "aberto" : "recolhido"
+            }
+            onMouseEnter={() => setRespostasSobMouse(true)}
+            onMouseLeave={() => setRespostasSobMouse(false)}
+            onFocusCapture={() => setRespostasSobMouse(true)}
+            onBlurCapture={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget)) setRespostasSobMouse(false);
+            }}
+          >
+            <button
+              type="button"
+              className={cn(
+                "absolute inset-0 hidden w-14 flex-col items-center justify-center gap-2 border-l bg-background/95 text-primary backdrop-blur transition-opacity md:flex",
+                (respostasSobMouse || estadoDasRespostas === "aberto") &&
+                  "pointer-events-none opacity-0",
+              )}
+              aria-label={t("Expandir respostas rápidas")}
+              title={t("Passe o mouse para abrir as respostas rápidas")}
+              onClick={() => setEstadoDasRespostas("aberto")}
+            >
+              <span className="flex size-9 items-center justify-center rounded-full bg-primary/10">
+                <Lightning className="size-5" weight="fill" aria-hidden />
+              </span>
+              <span className="text-[10px] font-semibold tracking-wide [writing-mode:vertical-rl]">
+                {t("Respostas rápidas")}
+              </span>
+            </button>
+            <div
+              className={cn(
+                "flex h-full justify-end transition-opacity",
+                !(respostasSobMouse || estadoDasRespostas === "aberto") &&
+                  "md:pointer-events-none md:invisible md:opacity-0",
+              )}
+              onPointerDownCapture={() => {
+                if (estadoDasRespostas === "recolhido") setEstadoDasRespostas("aberto");
+              }}
+            >
+              <QuickRepliesPanel
+                key={selectedConversation.id}
+                conversationId={selectedConversation.id}
+                contactId={selectedConversation.contacts.id}
+                contactName={selectedConversation.contacts.name}
+                contactDisplayName={selectedConversation.contacts.display_name}
+                status={selectedConversation.status}
+                tags={selectedConversation.tags ?? []}
+                onClose={() => setEstadoDasRespostas("fechado")}
               />
             </div>
-            <RetentionNotice conversationId={selectedConversation.id} />
-            {selectedConversation.contacts?.id && (
-              <NumeroForaDoAr
-                key={`numero:${selectedConversation.id}`}
-                conversationId={selectedConversation.id}
-                channelSessionId={selectedConversation.channel_session_id}
-                contactId={selectedConversation.contacts.id}
-                contactPhone={selectedConversation.contacts.phone_number ?? null}
-                onAbrirConversa={handleSelect}
-              />
-            )}
-            {motivoDaJanela && (
-              <JanelaFechadaAviso
-                conversationId={selectedConversation.id}
-                provider={selectedConversation.channel_sessions?.provider ?? null}
-                motivo={motivoDaJanela}
-              />
-            )}
-            <Composer
-              // Trocar a chave quando o rascunho sai REMONTA o composer: o texto
-              // nasce de `useState(initialDraft)`, e só a prop mudar não o limparia.
-              // Sem rascunho a chave é fixa e a troca de conversa segue como antes.
-              key={rascunhoVivo ? `rascunho:${rascunhoVivo.conversationId}` : "composer"}
-              ref={composerRef}
-              conversationId={selectedConversation.id}
-              blockedReason={supportReadonly ? "Acompanhamento somente leitura" : blockedReason}
-              janelaFechada={motivoDaJanela}
-              disabled={selectedConversation.status === "closed"}
-              contactName={selectedConversation.contacts?.name ?? null}
-              contactDisplayName={selectedConversation.contacts?.display_name}
-              respondendo={respondendo}
-              onCancelarResposta={() => setRespondendo(null)}
-              currentContactId={selectedConversation.contact_id}
-              // O aviso é DA conversa da URL: trocar de conversa dentro da inbox
-              // não pode deixar um texto sugerido no campo de outra pessoa.
-              rascunho={rascunhoVivo}
-              initialDraft={
-                rascunhoVivo?.leitura.estado === "sugerido" ? rascunhoVivo.leitura.texto : ""
-              }
-              onOpenQuickReplies={() => setRespostasAbertas(true)}
-            />
-          </>
-        ) : selectionNotFound ? (
-          <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
-            {t("Conversa não encontrada ou fora do seu acesso.")}
-          </div>
-        ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-            <ChatCircle size={36} weight="thin" className="text-text-subtle" aria-hidden />
-            <p className="text-sm font-medium text-text-muted">{t("Selecione uma conversa")}</p>
-            <p className="text-xs text-text-muted">{t("Ou navegue com J e K")}</p>
           </div>
         )}
-      </div>
 
-      <div className="hidden h-full min-h-0 min-w-0 xl:block">
-        <CRMSidePanel conversation={selectedConversation} />
-      </div>
-
-      {respostasAbertas && selectedConversation?.contacts?.id && (
-        <div className="group/quick absolute inset-y-0 right-0 z-40 w-full overflow-hidden shadow-2xl transition-[width] duration-200 ease-out md:w-14 md:hover:w-[26rem] md:focus-within:w-[26rem]">
-          <button
-            type="button"
-            className="absolute inset-0 hidden w-14 flex-col items-center justify-center gap-2 border-l bg-background/95 text-primary backdrop-blur transition-opacity group-hover/quick:pointer-events-none group-hover/quick:opacity-0 group-focus-within/quick:pointer-events-none group-focus-within/quick:opacity-0 md:flex"
-            aria-label={t("Expandir respostas rápidas")}
-            title={t("Passe o mouse para abrir as respostas rápidas")}
-          >
-            <span className="flex size-9 items-center justify-center rounded-full bg-primary/10">
-              <Lightning className="size-5" weight="fill" aria-hidden />
-            </span>
-            <span className="text-[10px] font-semibold tracking-wide [writing-mode:vertical-rl]">
-              {t("Respostas rápidas")}
-            </span>
-          </button>
-          <div className="flex h-full justify-end transition-opacity md:pointer-events-none md:invisible md:opacity-0 md:group-hover/quick:pointer-events-auto md:group-hover/quick:visible md:group-hover/quick:opacity-100 md:group-focus-within/quick:pointer-events-auto md:group-focus-within/quick:visible md:group-focus-within/quick:opacity-100">
-            <QuickRepliesPanel
-              key={selectedConversation.id}
-              conversationId={selectedConversation.id}
-              contactId={selectedConversation.contacts.id}
-              contactName={selectedConversation.contacts.name}
-              contactDisplayName={selectedConversation.contacts.display_name}
-              status={selectedConversation.status}
-              tags={selectedConversation.tags ?? []}
-              onClose={() => setRespostasAbertas(false)}
-            />
-          </div>
-        </div>
-      )}
-
-      {/*
+        {/*
         AS DUAS DIVISÓRIAS (#2579) — só a partir do `md`, quando as colunas
         convivem; abaixo disso `efetivas` é `null` e nenhuma nasce.
 
@@ -853,66 +915,66 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
         ficha), o que evita medir a conversa para saber onde a terceira trilha
         começa.
       */}
-      {efetivas && (
-        <>
-          <span
-            role="separator"
-            aria-orientation="vertical"
-            aria-label={t("Ajustar largura da lista de conversas")}
-            title={t("Arraste para ajustar a largura")}
-            aria-valuenow={efetivas.lista}
-            aria-valuemin={LIMITES_LISTA.min}
-            aria-valuemax={LIMITES_LISTA.max}
-            data-divisoria="lista"
-            tabIndex={0}
-            onPointerDown={(evento) => arrastar("lista", evento)}
-            onDoubleClick={restaurarPadrao}
-            onKeyDown={(evento) => teclarNaDivisoria("lista", evento)}
-            className="group absolute inset-y-0 z-10 flex w-2 -translate-x-1/2 cursor-col-resize touch-none select-none items-stretch justify-center focus-visible:outline-hidden"
-            style={{ left: `${efetivas.lista}px` }}
-          >
-            <span
-              aria-hidden
-              className="w-px bg-border transition-colors group-hover:bg-primary group-focus-visible:bg-primary"
-            />
-          </span>
-          {faixa?.temFicha && (
+        {efetivas && (
+          <>
             <span
               role="separator"
               aria-orientation="vertical"
-              aria-label={t("Ajustar largura da ficha do contato")}
+              aria-label={t("Ajustar largura da lista de conversas")}
               title={t("Arraste para ajustar a largura")}
-              aria-valuenow={efetivas.ficha}
-              aria-valuemin={LIMITES_FICHA.min}
-              aria-valuemax={LIMITES_FICHA.max}
-              data-divisoria="ficha"
+              aria-valuenow={efetivas.lista}
+              aria-valuemin={LIMITES_LISTA.min}
+              aria-valuemax={LIMITES_LISTA.max}
+              data-divisoria="lista"
               tabIndex={0}
-              onPointerDown={(evento) => arrastar("ficha", evento)}
+              onPointerDown={(evento) => arrastar("lista", evento)}
               onDoubleClick={restaurarPadrao}
-              onKeyDown={(evento) => teclarNaDivisoria("ficha", evento)}
-              className="group absolute inset-y-0 z-10 flex w-2 translate-x-1/2 cursor-col-resize touch-none select-none items-stretch justify-center focus-visible:outline-hidden"
-              style={{ right: `${efetivas.ficha}px` }}
+              onKeyDown={(evento) => teclarNaDivisoria("lista", evento)}
+              className="group absolute inset-y-0 z-10 flex w-2 -translate-x-1/2 cursor-col-resize touch-none items-stretch justify-center select-none focus-visible:outline-hidden"
+              style={{ left: `${efetivas.lista}px` }}
             >
               <span
                 aria-hidden
                 className="w-px bg-border transition-colors group-hover:bg-primary group-focus-visible:bg-primary"
               />
             </span>
-          )}
-        </>
-      )}
+            {faixa?.temFicha && (
+              <span
+                role="separator"
+                aria-orientation="vertical"
+                aria-label={t("Ajustar largura da ficha do contato")}
+                title={t("Arraste para ajustar a largura")}
+                aria-valuenow={efetivas.ficha}
+                aria-valuemin={LIMITES_FICHA.min}
+                aria-valuemax={LIMITES_FICHA.max}
+                data-divisoria="ficha"
+                tabIndex={0}
+                onPointerDown={(evento) => arrastar("ficha", evento)}
+                onDoubleClick={restaurarPadrao}
+                onKeyDown={(evento) => teclarNaDivisoria("ficha", evento)}
+                className="group absolute inset-y-0 z-10 flex w-2 translate-x-1/2 cursor-col-resize touch-none items-stretch justify-center select-none focus-visible:outline-hidden"
+                style={{ right: `${efetivas.ficha}px` }}
+              >
+                <span
+                  aria-hidden
+                  className="w-px bg-border transition-colors group-hover:bg-primary group-focus-visible:bg-primary"
+                />
+              </span>
+            )}
+          </>
+        )}
 
-      <InboxKeyboardShortcuts
-        visibleIds={visibleIds}
-        selectedId={selectedId}
-        onSelect={handleSelect}
-        onFocusReply={handleFocusReply}
-        onClaim={supportReadonly ? () => {} : handleClaim}
-        onClose={supportReadonly ? () => {} : handleClose}
-        onToggleHelp={() => setHelpOpen((v) => !v)}
-      />
-      <ShortcutsHelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
-    </div>
+        <InboxKeyboardShortcuts
+          visibleIds={visibleIds}
+          selectedId={selectedId}
+          onSelect={handleSelect}
+          onFocusReply={handleFocusReply}
+          onClaim={supportReadonly ? () => {} : handleClaim}
+          onClose={supportReadonly ? () => {} : handleClose}
+          onToggleHelp={() => setHelpOpen((v) => !v)}
+        />
+        <ShortcutsHelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
+      </div>
     </OpenConversationProvider>
   );
 }

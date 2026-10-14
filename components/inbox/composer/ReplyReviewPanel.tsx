@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api/client";
 import { showApiError } from "@/components/feedback/ApiErrorToast";
@@ -8,6 +8,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { useT } from "@/hooks/i18n/useT";
 import { sugestaoParaMostrar } from "@/lib/agent-engine/agent/sugestao-de-resposta";
+import { CaretDown, CaretRight, Sparkle } from "@/lib/ui/icons";
+import { cn } from "@/lib/utils";
 type Draft = {
   id: string;
   revision: string;
@@ -26,7 +28,8 @@ export function ReplyReviewPanel({
 }) {
   const t = useT(),
     qc = useQueryClient(),
-    key = ["reply-drafts", conversationId];
+    key = ["reply-drafts", conversationId],
+    contentId = useId();
   const query = useQuery({
     queryKey: key,
     queryFn: () =>
@@ -39,6 +42,7 @@ export function ReplyReviewPanel({
   const [edits, setEdits] = useState<Record<string, string>>({}),
     [feedback, setFeedback] = useState(""),
     [busy, setBusy] = useState(false),
+    [expanded, setExpanded] = useState(false),
     [notice, setNotice] = useState<{
       draftId: string;
       message: string;
@@ -49,6 +53,7 @@ export function ReplyReviewPanel({
   const draft = sugestaoParaMostrar(query.data?.data.drafts);
   const body = draft ? (edits[draft.id] ?? draft.edited_body ?? draft.original_body ?? "") : "";
   async function generate() {
+    setExpanded(true);
     setNotice(null);
     setBusy(true);
     try {
@@ -106,103 +111,148 @@ export function ReplyReviewPanel({
   };
   return (
     <section
-      className="mb-3 space-y-2 rounded-md border bg-muted/30 p-3"
-      aria-label={t("Assistência do agente")}
-    >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm font-medium">
-          {t(draft ? (statuses[draft.status] ?? "Assistência do agente") : "Assistência do agente")}
-        </p>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={disabled || busy}
-          onClick={generate}
-        >
-          {t(busy ? "Preparando…" : "Sugerir resposta")}
-        </Button>
-      </div>
-      {draft && (
-        <>
-          <p className="text-xs text-muted-foreground">
-            {t(
-              "Aprovar envia somente este texto. Não altera dados, agenda ou a autonomia do agente.",
-            )}
-          </p>
-          {body && (
-            <Textarea
-              aria-label={t("Resposta sugerida")}
-              value={body}
-              onChange={(e) => setEdits({ ...edits, [draft.id]: e.target.value })}
-              disabled={disabled || busy || draft.status !== "pending"}
-              rows={3}
-            />
-          )}
-          {draft.proposals.length > 0 && (
-            <details className="text-xs">
-              <summary>{t("Ações propostas: precisam de autorização separada")}</summary>
-              <p>{t("Abra a ação correspondente no CRM ou na agenda para confirmar.")}</p>
-              <ul>
-                {draft.proposals.map((p, i) => (
-                  <li key={i}>{p.tool}</li>
-                ))}
-              </ul>
-            </details>
-          )}
-          {draft.status === "pending" && (
-            <>
-              <Input
-                aria-label={t("Feedback para a próxima sugestão")}
-                placeholder={t("Feedback para a próxima sugestão")}
-                value={feedback}
-                onChange={(e) => setFeedback(e.target.value)}
-                maxLength={1000}
-              />
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={disabled || busy || !body.trim()}
-                  onClick={() => decide("approve")}
-                >
-                  {t("Aprovar e enviar")}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={disabled || busy}
-                  onClick={() => decide("reject")}
-                >
-                  {t("Rejeitar")}
-                </Button>
-              </div>
-            </>
-          )}
-          {draft.status === "failed" && (
-            <p className="text-xs">
-              {t("Confira a configuração do agente e tente gerar novamente.")}
-            </p>
-          )}
-        </>
+      className={cn(
+        "rounded-lg border border-info/30 bg-info-bg/35 shadow-sm",
+        expanded ? "space-y-3 p-3" : "p-2.5",
       )}
-      {/*
+      aria-label={t("Assistência do agente")}
+      data-testid="reply-review-panel"
+      data-expanded={expanded ? "true" : "false"}
+    >
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-md text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          aria-expanded={expanded}
+          aria-controls={contentId}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-info/15 text-info-fg">
+            <Sparkle size={16} weight="fill" aria-hidden />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-xs font-semibold tracking-wide text-info-fg uppercase">
+              {t("Assistência do agente")}
+            </span>
+            <span className="block truncate text-xs text-muted-foreground">
+              {t(
+                draft
+                  ? (statuses[draft.status] ?? "Assistência do agente")
+                  : "Gerar uma sugestão de resposta",
+              )}
+            </span>
+          </span>
+          {expanded ? <CaretDown size={16} aria-hidden /> : <CaretRight size={16} aria-hidden />}
+        </button>
+        {!expanded && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 shrink-0 bg-background"
+            disabled={disabled || busy}
+            onClick={generate}
+          >
+            {t(busy ? "Preparando…" : "Sugerir")}
+          </Button>
+        )}
+      </div>
+      <div id={contentId} hidden={!expanded} className="space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm font-medium text-foreground">
+            {t(draft ? (statuses[draft.status] ?? "Assistência do agente") : "Nova sugestão")}
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={disabled || busy}
+            onClick={generate}
+          >
+            {t(busy ? "Preparando…" : "Sugerir resposta")}
+          </Button>
+        </div>
+        {draft && (
+          <>
+            <p className="text-xs text-muted-foreground">
+              {t(
+                "Aprovar envia somente este texto. Não altera dados, agenda ou a autonomia do agente.",
+              )}
+            </p>
+            {body && (
+              <Textarea
+                aria-label={t("Resposta sugerida")}
+                value={body}
+                onChange={(e) => setEdits({ ...edits, [draft.id]: e.target.value })}
+                disabled={disabled || busy || draft.status !== "pending"}
+                rows={3}
+              />
+            )}
+            {draft.proposals.length > 0 && (
+              <details className="text-xs">
+                <summary>{t("Ações propostas: precisam de autorização separada")}</summary>
+                <p>{t("Abra a ação correspondente no CRM ou na agenda para confirmar.")}</p>
+                <ul>
+                  {draft.proposals.map((p, i) => (
+                    <li key={i}>{p.tool}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
+            {draft.status === "pending" && (
+              <>
+                <Input
+                  aria-label={t("Feedback para a próxima sugestão")}
+                  placeholder={t("Feedback para a próxima sugestão")}
+                  value={feedback}
+                  onChange={(e) => setFeedback(e.target.value)}
+                  maxLength={1000}
+                />
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={disabled || busy || !body.trim()}
+                    onClick={() => decide("approve")}
+                  >
+                    {t("Aprovar e enviar")}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={disabled || busy}
+                    onClick={() => decide("reject")}
+                  >
+                    {t("Rejeitar")}
+                  </Button>
+                </div>
+              </>
+            )}
+            {draft.status === "failed" && (
+              <p className="text-xs">
+                {t("Confira a configuração do agente e tente gerar novamente.")}
+              </p>
+            )}
+          </>
+        )}
+        {/*
         A confirmação da rejeição ("o feedback será usado na próxima sugestão")
         estava amarrada a `draft` existir. Agora a rejeitada some da tela — que é
         o conserto —, e sem esta mudança a confirmação sumiria junto com ela: a
         pessoa clicaria em Rejeitar e a tela apenas esvaziaria, sem dizer nada.
         Quando ainda há sugestão, o aviso continua amarrado a ela.
       */}
-      {notice &&
-        (!draft ||
-          (notice.draftId === draft.id &&
-            (notice.kind === "error" ||
-              ["approved", "sending", "sent", "dismissed"].includes(draft.status)))) && (
-          <p role="status" className="text-xs">
-            {notice.message}
-          </p>
-        )}
+        {notice &&
+          (!draft ||
+            (notice.draftId === draft.id &&
+              (notice.kind === "error" ||
+                ["approved", "sending", "sent", "dismissed"].includes(draft.status)))) && (
+            <p role="status" className="text-xs">
+              {notice.message}
+            </p>
+          )}
+      </div>
     </section>
   );
 }

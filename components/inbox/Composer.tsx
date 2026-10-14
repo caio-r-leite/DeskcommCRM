@@ -15,7 +15,6 @@ import { AttachMenu } from "@/components/inbox/composer/AttachMenu";
 import { AttachmentPreviewDialog } from "@/components/inbox/composer/AttachmentPreviewDialog";
 import { ContactPickerDialog } from "@/components/inbox/composer/ContactPickerDialog";
 import { AudioRecorder } from "@/components/inbox/composer/AudioRecorder";
-import { ReplyReviewPanel } from "@/components/inbox/composer/ReplyReviewPanel";
 import { EmojiButton } from "@/components/inbox/composer/EmojiButton";
 import {
   MentionMenu,
@@ -117,6 +116,8 @@ interface Props {
   rascunho?: AvisoDeRascunho | null;
   /** Abre o painel completo de respostas rápidas; o slash-menu segue compacto. */
   onOpenQuickReplies?: () => void;
+  /** Mantém o raio marcado enquanto o dock lateral está recolhido ou aberto. */
+  quickRepliesActive?: boolean;
 }
 
 export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
@@ -136,6 +137,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
     onCancelarResposta,
     rascunho = null,
     onOpenQuickReplies,
+    quickRepliesActive = false,
   },
   ref,
 ) {
@@ -479,9 +481,6 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
           mode === "note" && "border-warning/40 bg-warning-bg",
         )}
       >
-        {mode === "reply" && (
-          <ReplyReviewPanel conversationId={conversationId} disabled={isDisabled} />
-        )}
         <TemplateMenu
           open={menuOpen}
           query={quickMenuOpen ? "" : slash.query}
@@ -670,11 +669,12 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
           {mode === "reply" && (
             <Button
               type="button"
-              variant={quickMenuOpen ? "secondary" : "ghost"}
+              variant={quickMenuOpen || quickRepliesActive ? "secondary" : "ghost"}
               size="icon"
-              className="h-9 w-9 shrink-0"
+              className="relative z-50 h-9 w-9 shrink-0"
               disabled={respostaBarrada || templateMediaLoading}
               aria-label={t("Respostas rápidas")}
+              aria-pressed={quickRepliesActive}
               title={t("Respostas rápidas")}
               onClick={() => {
                 if (onOpenQuickReplies) {

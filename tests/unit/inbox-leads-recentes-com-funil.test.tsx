@@ -16,15 +16,30 @@ const conversation = {
   id: "cv-1",
   organization_id: "org-1",
   contact_id: CONTACT,
-  tags: [],
-  contacts: { id: CONTACT, display_name: "Fulana", name: null, phone_number: "5511999", tags: [] },
+  tags: ["OURIVES"],
+  contacts: {
+    id: CONTACT,
+    display_name: "Fulana",
+    name: null,
+    phone_number: "5511999",
+    tags: ["VIP"],
+  },
 } as unknown as React.ComponentProps<typeof CRMSidePanel>["conversation"];
 
 function leadRow(id: string, funil: string, etapa: string, status: string) {
   return {
-    id, title: "Felipe", status, value_cents: null, currency: null,
-    updated_at: "2026-09-15T12:00:00Z", pipeline_id: `p-${id}`, custom_fields: {}, field_defs: [],
-    funil_nome: funil, etapa_nome: etapa,
+    id,
+    title: "Felipe",
+    status,
+    value_cents: null,
+    currency: null,
+    updated_at: "2026-09-15T12:00:00Z",
+    pipeline_id: `p-${id}`,
+    custom_fields: {},
+    field_defs: [],
+    funil_nome: funil,
+    etapa_nome: etapa,
+    tags: ["NEGÓCIO"],
   };
 }
 
@@ -65,10 +80,12 @@ beforeEach(() => get.mockReset());
 
 describe("painel do inbox — leads recentes dizem funil, etapa e status traduzido", () => {
   it("dois leads de mesmo título mostram funis diferentes, e 'Aberto' no lugar de 'open'", async () => {
-    get.mockResolvedValue(resposta([
-      leadRow("l-1", "GMN Advogados", "Novo", "open"),
-      leadRow("l-2", "Padrão", "Qualificação", "won"),
-    ]));
+    get.mockResolvedValue(
+      resposta([
+        leadRow("l-1", "GMN Advogados", "Novo", "open"),
+        leadRow("l-2", "Padrão", "Qualificação", "won"),
+      ]),
+    );
     renderPainel();
 
     const um = await screen.findByTestId("inbox-lead-l-1");
@@ -88,10 +105,12 @@ describe("painel do inbox — leads recentes dizem funil, etapa e status traduzi
    */
   it("nome longo de funil não engole a etapa: duas linhas e o inteiro no title", async () => {
     const longo = "Funil de Vendas Consultivas B2B";
-    get.mockResolvedValue(resposta([
-      leadRow("l-1", longo, "Proposta enviada", "open"),
-      leadRow("l-2", longo, "Novo", "open"),
-    ]));
+    get.mockResolvedValue(
+      resposta([
+        leadRow("l-1", longo, "Proposta enviada", "open"),
+        leadRow("l-2", longo, "Novo", "open"),
+      ]),
+    );
     renderPainel();
 
     const linha = (await screen.findByTestId("inbox-lead-l-1")).querySelector<HTMLElement>(
@@ -116,10 +135,20 @@ describe("painel do inbox — leads recentes dizem funil, etapa e status traduzi
    */
   it("clínica com o vocabulário que a coluna herda do e-commerce lê 'Ganho', não 'Pago'", async () => {
     const herdado = { lead: "Cliente", deal: "Pedido", won: "Pago", lost: "Cancelado" };
-    get.mockResolvedValue(resposta([
-      { ...leadRow("l-1", "Clínica", "Consulta marcada", "won"), vocabulario: herdado, vocabulary: herdado },
-      { ...leadRow("l-2", "Clínica", "Não compareceu", "lost"), vocabulario: herdado, vocabulary: herdado },
-    ]));
+    get.mockResolvedValue(
+      resposta([
+        {
+          ...leadRow("l-1", "Clínica", "Consulta marcada", "won"),
+          vocabulario: herdado,
+          vocabulary: herdado,
+        },
+        {
+          ...leadRow("l-2", "Clínica", "Não compareceu", "lost"),
+          vocabulario: herdado,
+          vocabulary: herdado,
+        },
+      ]),
+    );
     renderPainel();
 
     const um = await screen.findByTestId("inbox-lead-l-1");
@@ -137,5 +166,9 @@ describe("painel do inbox — leads recentes dizem funil, etapa e status traduzi
     expect(linha.textContent).toContain("GMN Advogados · Novo");
     expect(linha.textContent).toContain("Perdido");
     expect(linha.textContent).not.toMatch(/\blost\b/);
+    expect(linha.textContent).toContain("NEGÓCIO");
+    expect(linha.textContent).toContain("OURIVES");
+    expect(linha.textContent).toContain("VIP");
+    expect(screen.getByText("Perdido")).toHaveClass("text-error-fg");
   });
 });
