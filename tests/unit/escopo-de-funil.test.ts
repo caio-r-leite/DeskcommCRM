@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import { allTools } from "@/lib/mcp/tools";
-import { TOOL_CATALOG } from "@/lib/mcp/tools/catalog";
 import {
   ALVO_DE_FUNIL,
   podeChamarFerramenta,
@@ -330,7 +329,7 @@ describe("VACUIDADE — nenhuma escrita escapa da tabela", () => {
     // Este caso é o que mantém `ALVO_DE_FUNIL` viva. Sem ele, a tabela vira uma
     // lista que envelhece — e a ferramenta de escrita nº 22 nasce fora do gate
     // sem nada vermelhar.
-    const escritas = TOOL_CATALOG.filter((t) => t.category === "write").map((t) => t.name);
+    const escritas = allTools.filter((t) => t.category === "write").map((t) => t.name);
     const semClassificacao = escritas.filter((n) => ALVO_DE_FUNIL[n] === undefined).sort();
 
     expect(
@@ -340,10 +339,9 @@ describe("VACUIDADE — nenhuma escrita escapa da tabela", () => {
   });
 
   it("o catálogo TEM escritas — controle positivo do caso acima", () => {
-    // Zero achados só vale se houve o que procurar. Se `TOOL_CATALOG` mudasse de
-    // forma, o caso anterior varreria uma lista vazia e ficaria verde para
-    // sempre.
-    const escritas = TOOL_CATALOG.filter((t) => t.category === "write");
+    // Zero achados só vale se houve o que procurar. Se `allTools` mudasse de
+    // forma, o caso anterior varreria uma lista vazia e ficaria verde para sempre.
+    const escritas = allTools.filter((t) => t.category === "write");
     expect(escritas.length, "esperava ferramentas de escrita no catálogo").toBeGreaterThan(10);
   });
 
