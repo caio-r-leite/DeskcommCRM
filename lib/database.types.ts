@@ -1826,6 +1826,8 @@ export type Database = {
           id: string
           inbound_debounce_ms: number | null
           knowledge_source_ids: string[]
+          quick_reply_access_mode: string
+          quick_reply_template_ids: string[]
           max_steps: number
           model: string
           multimodal_input: boolean
@@ -1866,6 +1868,8 @@ export type Database = {
           id?: string
           inbound_debounce_ms?: number | null
           knowledge_source_ids?: string[]
+          quick_reply_access_mode?: string
+          quick_reply_template_ids?: string[]
           max_steps?: number
           model: string
           multimodal_input?: boolean
@@ -1906,6 +1910,8 @@ export type Database = {
           id?: string
           inbound_debounce_ms?: number | null
           knowledge_source_ids?: string[]
+          quick_reply_access_mode?: string
+          quick_reply_template_ids?: string[]
           max_steps?: number
           model?: string
           multimodal_input?: boolean
@@ -7639,8 +7645,8 @@ export type Database = {
         Relationships: []
       }
       message_template_executions: {
-        Row: { id: string; organization_id: string; template_id: string | null; conversation_id: string; contact_id: string; started_by_user_id: string; template_title: string; status: string; current_position: number; total_steps: number; error_message: string | null; confirmed_at: string | null; started_at: string | null; finished_at: string | null; created_at: string; updated_at: string }
-        Insert: { id?: string; organization_id: string; template_id?: string | null; conversation_id: string; contact_id: string; started_by_user_id: string; template_title: string; status?: string; current_position?: number; total_steps: number; error_message?: string | null; confirmed_at?: string | null; started_at?: string | null; finished_at?: string | null; created_at?: string; updated_at?: string }
+        Row: { id: string; organization_id: string; template_id: string | null; conversation_id: string; contact_id: string; started_by_user_id: string | null; started_by_agent_version_id: string | null; source_job_id: string | null; template_title: string; status: string; current_position: number; total_steps: number; error_message: string | null; confirmed_at: string | null; started_at: string | null; finished_at: string | null; created_at: string; updated_at: string }
+        Insert: { id?: string; organization_id: string; template_id?: string | null; conversation_id: string; contact_id: string; started_by_user_id?: string | null; started_by_agent_version_id?: string | null; source_job_id?: string | null; template_title: string; status?: string; current_position?: number; total_steps: number; error_message?: string | null; confirmed_at?: string | null; started_at?: string | null; finished_at?: string | null; created_at?: string; updated_at?: string }
         Update: { status?: string; current_position?: number; error_message?: string | null; confirmed_at?: string | null; started_at?: string | null; finished_at?: string | null; updated_at?: string }
         Relationships: []
       }

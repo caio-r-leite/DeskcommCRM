@@ -64,6 +64,15 @@ export async function createMcpAgentDraft(
   );
   if (new Set(sources.rows.map((r) => r.id)).size !== new Set(v.knowledge_source_ids).size)
     throw new Error("knowledge_scope_invalid");
+  if (v.quick_reply_access_mode === "selected") {
+    if (v.quick_reply_template_ids.length === 0) throw new Error("quick_reply_scope_empty");
+    const templates = await db.query(
+      "select id from message_templates where organization_id=$1 and owner_user_id is null and id=any($2::uuid[])",
+      [context.orgId, v.quick_reply_template_ids],
+    );
+    if (new Set(templates.rows.map((r) => r.id)).size !== new Set(v.quick_reply_template_ids).size)
+      throw new Error("quick_reply_scope_invalid");
+  }
   const agentId = records.agent.id;
   const versionId = records.version.id;
   const { rows: agents } = await db.query(

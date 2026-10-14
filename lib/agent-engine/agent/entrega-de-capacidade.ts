@@ -146,7 +146,13 @@ export function capacidadesEntreguesAoOperador(input: {
  * mesma decisão (levantar o que perguntar), e o Operador não tem a conversa
  * para perguntar nada.
  */
-export const FORA_DO_OPERADOR: readonly string[] = ['crm_draft_proposal', 'crm_preparar_proposta'];
+export const FORA_DO_OPERADOR: readonly string[] = [
+  'crm_draft_proposal',
+  'crm_preparar_proposta',
+  // O Operador não fala com o cliente. Roteiros prontos podem enviar mídia e
+  // texto, portanto pertencem exclusivamente ao papel Conversador.
+  'crm_execute_quick_reply',
+];
 
 /**
  * A configuração com que a MÃO do Operador é montada: a lista dele

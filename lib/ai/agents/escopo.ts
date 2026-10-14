@@ -25,6 +25,8 @@ import {
 export interface EscopoDaVersao {
   pipeline_ids?: string[];
   knowledge_source_ids?: string[];
+  quick_reply_access_mode?: "none" | "selected" | "all";
+  quick_reply_template_ids?: string[];
   /** `null`/ausente = a chave da instalação; não há o que conferir. */
   credential_id?: string | null;
   channel_session_id?: string | null;
@@ -41,7 +43,7 @@ export type ResultadoDoEscopo =
   | { ok: false; campo: "provider"; ausentes: string[] }
   | {
       ok: false;
-      campo: "pipeline_ids" | "knowledge_source_ids" | "credential_id" | "channel_session_id";
+      campo: "pipeline_ids" | "knowledge_source_ids" | "quick_reply_template_ids" | "credential_id" | "channel_session_id";
       ausentes: string[];
     };
 
@@ -91,6 +93,24 @@ export async function validarEscopoDaVersao(
     if (ausentes.length > 0) return { ok: false, campo: "knowledge_source_ids", ausentes };
   }
 
+  const respostas = escopo.quick_reply_access_mode === "selected"
+    ? (escopo.quick_reply_template_ids ?? [])
+    : [];
+  if (escopo.quick_reply_access_mode === "selected" && respostas.length === 0) {
+    return { ok: false, campo: "quick_reply_template_ids", ausentes: [] };
+  }
+  if (respostas.length > 0) {
+    const { data } = await supabase
+      .from("message_templates")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .is("owner_user_id", null)
+      .in("id", respostas);
+    const achados = new Set(((data ?? []) as Array<{ id: string }>).map((r) => r.id));
+    const ausentes = respostas.filter((id) => !achados.has(id));
+    if (ausentes.length > 0) return { ok: false, campo: "quick_reply_template_ids", ausentes };
+  }
+
   // Credencial e canal são referências únicas, e a FK do banco só confere que
   // a linha EXISTE — não que é desta organização. "De outra organização" e
   // "não existe" dão a mesma resposta de propósito.
@@ -119,6 +139,10 @@ export function mensagemDoEscopo(r: Extract<ResultadoDoEscopo, { ok: false }>): 
       return `Um dos funis marcados não existe mais nesta organização (${r.ausentes.length}). Recarregue a página e marque de novo.`;
     case "knowledge_source_ids":
       return `Um dos materiais marcados não existe mais, ou foi arquivado (${r.ausentes.length}). Recarregue a página e marque de novo.`;
+    case "quick_reply_template_ids":
+      return r.ausentes.length === 0
+        ? "Selecione ao menos uma resposta rápida para este agente."
+        : `Uma das respostas rápidas marcadas não existe mais ou não é compartilhada (${r.ausentes.length}). Recarregue a página e marque de novo.`;
     case "credential_id":
       return "A credencial escolhida não existe nesta organização. Recarregue a página e escolha de novo.";
     case "channel_session_id":

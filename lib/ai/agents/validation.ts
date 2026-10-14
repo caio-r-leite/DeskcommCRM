@@ -248,6 +248,14 @@ const versionShapeSchema = z
      * organização é o servidor.
      */
     knowledge_source_ids: z.array(z.string().uuid()).default([]),
+    /**
+     * Roteiros prontos que o agente pode disparar. Nasce fechado: habilitar uma
+     * ferramenta de envio nunca pode ser efeito colateral de uma migration.
+     * Os UUIDs são conferidos contra respostas COMPARTILHADAS da organização
+     * antes de salvar/publicar; o schema compartilhado valida apenas a forma.
+     */
+    quick_reply_access_mode: z.enum(["none", "selected", "all"]).default("none"),
+    quick_reply_template_ids: z.array(UUID).max(100).default([]),
   })
   .strict();
 
@@ -277,6 +285,8 @@ export const versionPatchSchema = versionShapeSchema
     operator_tool_ids: versionShapeSchema.shape.operator_tool_ids.removeDefault(),
     pipeline_ids: versionShapeSchema.shape.pipeline_ids.removeDefault(),
     knowledge_source_ids: versionShapeSchema.shape.knowledge_source_ids.removeDefault(),
+    quick_reply_access_mode: versionShapeSchema.shape.quick_reply_access_mode.removeDefault(),
+    quick_reply_template_ids: versionShapeSchema.shape.quick_reply_template_ids.removeDefault(),
   })
   .partial();
 

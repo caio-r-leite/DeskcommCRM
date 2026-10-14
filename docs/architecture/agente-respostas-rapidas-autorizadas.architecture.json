@@ -1,0 +1,25 @@
+{
+  "feature": "agente-respostas-rapidas-autorizadas",
+  "entrypoints": [
+    "app/app/ai/agents/[id]/_components/AcessoRespostasRapidas.tsx",
+    "lib/mcp/tools/respostas-rapidas.ts"
+  ],
+  "modules": [
+    "lib/quick-replies/agent-policy.ts",
+    "lib/quick-replies/agent-executor.ts",
+    "lib/agent-engine/edge/crm/mcp-tools.ts"
+  ],
+  "authority": "A versão publicada escolhe none, selected ou all. O modelo informa somente título ou atalho; conteúdo e ações vêm do snapshot compartilhado no servidor.",
+  "write_paths": [
+    "sendMessageHandler",
+    "moveLeadHandler",
+    "createLeadHandler",
+    "conversations.tags"
+  ],
+  "idempotency": "Uma execução por organization_id + source_job_id + template_id; cada envio usa o UUID idempotency_key do passo como messages.id.",
+  "tenant_boundary": "Toda leitura e escrita usa organization_id confiável do turno. Somente templates compartilhados são elegíveis.",
+  "channel_safety": "Envios passam por sendMessageHandler com service boundary e agent operation vigentes; não existe adaptador de canal novo.",
+  "operator_boundary": "crm_execute_quick_reply está em FORA_DO_OPERADOR; somente o Conversador recebe a ferramenta.",
+  "cost_control": "Modo selected injeta apenas títulos e atalhos autorizados; modo all não lista o catálogo inteiro no prompt. O roteiro não exige uma nova chamada de modelo por passo.",
+  "limits": "Roteiros do agente recusam antes do primeiro efeito quando a soma das esperas excede 30 segundos."
+}

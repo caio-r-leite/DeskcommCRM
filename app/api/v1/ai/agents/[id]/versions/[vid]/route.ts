@@ -19,7 +19,7 @@ import { traduzir } from "@/lib/i18n/dicionario";
 export const dynamic = "force-dynamic";
 
 const VERSION_COLUMNS =
-  "id, organization_id, agent_id, version_number, system_prompt, provider, model, credential_id, tool_ids, trigger_config, channel_session_id, max_steps, token_budget, cost_budget_cents, history_message_window, history_token_window, handoff_keywords, handoff_tool_enabled, handoff_legal_enabled, proposal_ai_draft_enabled, cases_enabled, split_messages, split_max_chars, followup, operator_enabled, operator_model, operator_tool_ids, status, published_at, superseded_at, created_at, created_by,pipeline_ids,knowledge_source_ids,provisioning_origin,inbound_debounce_ms";
+  "id, organization_id, agent_id, version_number, system_prompt, provider, model, credential_id, tool_ids, trigger_config, channel_session_id, max_steps, token_budget, cost_budget_cents, history_message_window, history_token_window, handoff_keywords, handoff_tool_enabled, handoff_legal_enabled, proposal_ai_draft_enabled, cases_enabled, split_messages, split_max_chars, followup, operator_enabled, operator_model, operator_tool_ids, status, published_at, superseded_at, created_at, created_by,pipeline_ids,knowledge_source_ids,quick_reply_access_mode,quick_reply_template_ids,provisioning_origin,inbound_debounce_ms";
 
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -102,7 +102,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx): Promise<Response> {
   const admin = createAdminClient();
   const { data: existing } = await admin
     .from("ai_agent_versions")
-    .select("id, status, agent_id, organization_id, followup")
+    .select("id, status, agent_id, organization_id, followup, quick_reply_access_mode, quick_reply_template_ids")
     .eq("id", vid)
     .eq("organization_id", organizationId)
     .eq("agent_id", id)
@@ -122,6 +122,8 @@ export async function PATCH(req: NextRequest, ctx: Ctx): Promise<Response> {
     channel_session_id: patch.channel_session_id,
     pipeline_ids: patch.pipeline_ids,
     knowledge_source_ids: patch.knowledge_source_ids,
+    quick_reply_access_mode: patch.quick_reply_access_mode ?? existing.quick_reply_access_mode,
+    quick_reply_template_ids: patch.quick_reply_template_ids ?? existing.quick_reply_template_ids,
   });
   if (!escopo.ok) {
     return fail(codigoDoEscopo(escopo), mensagemDoEscopo(escopo), 422, { requestId });
@@ -162,6 +164,10 @@ export async function PATCH(req: NextRequest, ctx: Ctx): Promise<Response> {
   if (patch.pipeline_ids !== undefined) update.pipeline_ids = patch.pipeline_ids;
   if (patch.knowledge_source_ids !== undefined)
     update.knowledge_source_ids = patch.knowledge_source_ids;
+  if (patch.quick_reply_access_mode !== undefined)
+    update.quick_reply_access_mode = patch.quick_reply_access_mode;
+  if (patch.quick_reply_template_ids !== undefined)
+    update.quick_reply_template_ids = patch.quick_reply_template_ids;
   if (patch.followup !== undefined) {
     const existingFollowup =
       existing.followup !== null &&

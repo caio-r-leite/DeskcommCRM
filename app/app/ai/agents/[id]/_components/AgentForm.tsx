@@ -58,6 +58,7 @@ import { BasesDoAgente, type MaterialDoAcervo } from "./BasesDoAgente";
 import { FunisDoAgente, type CoberturaPorFunil } from "./FunisDoAgente";
 import { PublishConfirmDialog } from "./PublishConfirmDialog";
 import { ComandosDoCelular } from "./ComandosDoCelular";
+import { AcessoRespostasRapidas } from "./AcessoRespostasRapidas";
 import {
   saveAgentDraftAction,
   publishAgentAction,
@@ -207,6 +208,8 @@ interface FormState {
   operator_tool_ids: string[];
   pipeline_ids: string[];
   knowledge_source_ids: string[];
+  quick_reply_access_mode: "none" | "selected" | "all";
+  quick_reply_template_ids: string[];
 }
 
 interface FollowupValue {
@@ -325,6 +328,8 @@ export function buildState(args: {
     pipeline_ids: version?.pipeline_ids ?? [],
     // `?? []` = nenhum material. Mesma direção segura: agir de menos.
     knowledge_source_ids: version?.knowledge_source_ids ?? [],
+    quick_reply_access_mode: version?.quick_reply_access_mode ?? "none",
+    quick_reply_template_ids: version?.quick_reply_template_ids ?? [],
   };
 }
 
@@ -382,6 +387,8 @@ function toVersionPayload(s: FormState) {
     operator_tool_ids: s.operator_tool_ids,
     pipeline_ids: s.pipeline_ids,
     knowledge_source_ids: s.knowledge_source_ids,
+    quick_reply_access_mode: s.quick_reply_access_mode,
+    quick_reply_template_ids: s.quick_reply_template_ids,
   };
 }
 
@@ -498,6 +505,8 @@ export function AgentForm(props: Props) {
     // agente não vai ao ar, e o botão "Publicar" explica o que falta.
     if (form.tool_ids.length > TETO_TOOLS_POR_AGENTE)
       errors.tool_ids = `${t("Máximo de")} ${TETO_TOOLS_POR_AGENTE} ${t("capacidades por agente.")}`;
+    if (form.quick_reply_access_mode === "selected" && form.quick_reply_template_ids.length === 0)
+      errors.quick_reply_template_ids = t("Selecione ao menos uma resposta rápida para este agente.");
 
     // Tenta o schema completo:
     if (Object.keys(errors).length === 0) {
@@ -1248,11 +1257,21 @@ export function AgentForm(props: Props) {
               value={form.tool_ids}
               onChange={(ids) => patch({ tool_ids: ids })}
               disabled={disabled}
+              ocultar={["crm_execute_quick_reply"]}
             />
             {validation.tool_ids ? (
               <p className="text-xs text-destructive">{validation.tool_ids}</p>
             ) : null}
           </Card>
+
+          <AcessoRespostasRapidas
+            mode={form.quick_reply_access_mode}
+            templateIds={form.quick_reply_template_ids}
+            onModeChange={(mode) => patch({ quick_reply_access_mode: mode })}
+            onTemplateIdsChange={(ids) => patch({ quick_reply_template_ids: ids })}
+            disabled={disabled}
+            error={validation.quick_reply_template_ids}
+          />
 
           {/* O acervo que este assistente consulta (0181) */}
           <BasesDoAgente

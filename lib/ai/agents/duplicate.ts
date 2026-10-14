@@ -33,7 +33,7 @@ export const DUPLICATE_AGENT_COLUMNS =
  * basta, se o INSERT não a escreve a cópia nasce com o default do banco.
  */
 export const DUPLICATE_VERSION_COLUMNS =
-  "id, organization_id, agent_id, version_number, system_prompt, provider, model, credential_id, tool_ids, trigger_config, channel_session_id, max_steps, token_budget, cost_budget_cents, history_message_window, history_token_window, handoff_keywords, handoff_tool_enabled, handoff_legal_enabled, proposal_ai_draft_enabled, cases_enabled, split_messages, split_max_chars, followup, operator_enabled, operator_model, operator_tool_ids, status, published_at, superseded_at, created_at, created_by,pipeline_ids,knowledge_source_ids,provisioning_origin,inbound_debounce_ms";
+  "id, organization_id, agent_id, version_number, system_prompt, provider, model, credential_id, tool_ids, trigger_config, channel_session_id, max_steps, token_budget, cost_budget_cents, history_message_window, history_token_window, handoff_keywords, handoff_tool_enabled, handoff_legal_enabled, proposal_ai_draft_enabled, cases_enabled, split_messages, split_max_chars, followup, operator_enabled, operator_model, operator_tool_ids, status, published_at, superseded_at, created_at, created_by,pipeline_ids,knowledge_source_ids,quick_reply_access_mode,quick_reply_template_ids,provisioning_origin,inbound_debounce_ms";
 
 export type DuplicateAgentError =
   | "not_found"
@@ -109,6 +109,8 @@ export function versionPayloadFrom(src: Record<string, unknown>) {
     // nenhum — e o dono descobria isso no primeiro atendimento do clone.
     pipeline_ids: src.pipeline_ids ?? [],
     knowledge_source_ids: src.knowledge_source_ids ?? [],
+    quick_reply_access_mode: src.quick_reply_access_mode ?? "none",
+    quick_reply_template_ids: src.quick_reply_template_ids ?? [],
   };
 }
 

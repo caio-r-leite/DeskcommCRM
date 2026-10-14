@@ -32,6 +32,8 @@ export interface AgentVersionRow {
   operator_tool_ids: string[];
   pipeline_ids: string[];
   knowledge_source_ids: string[];
+  quick_reply_access_mode: "none" | "selected" | "all";
+  quick_reply_template_ids: string[];
   split_messages: boolean;
   split_max_chars: number;
   inbound_debounce_ms: number | null;

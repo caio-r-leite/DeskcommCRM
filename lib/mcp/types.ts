@@ -39,6 +39,10 @@ export interface McpContext {
    * saem do turno.
    */
   contatoDoTurno?: string;
+  /** Conversa confiável do job; nunca é argumento gravável pelo modelo. */
+  conversaDoTurno?: string;
+  /** Versão publicada que concedeu as capacidades deste turno. */
+  agentVersionId?: string;
   organizationId: string;
   role: Role;
   actor: Actor;

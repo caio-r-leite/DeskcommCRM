@@ -63,6 +63,9 @@ export interface PublishedAgentConfig {
    * Vazio = NENHUM: a ferramenta de busca some do turno.
    */
   knowledgeSourceIds: string[];
+  /** Acesso versionado a roteiros compartilhados. `none` é falha fechada. */
+  quickReplyAccessMode?: 'none' | 'selected' | 'all';
+  quickReplyTemplateIds?: string[];
   /**
    * LEGADO: a KB ativa do agente (`ai_agents.active_kb_version_id`).
    *
@@ -146,6 +149,8 @@ interface Row {
   operator_tool_ids: string[] | null;
   pipeline_ids: string[] | null;
   knowledge_source_ids: string[] | null;
+  quick_reply_access_mode: 'none' | 'selected' | 'all' | null;
+  quick_reply_template_ids: string[] | null;
   trigger_config: unknown;
   version_created_by: string | null;
   agent_created_by: string | null;
@@ -179,6 +184,8 @@ const SELECT_AGENT_CONFIG_COLUMNS = `a.operation_mode,a.paused_at,a.operation_re
             v.operator_tool_ids,
             v.pipeline_ids,
             v.knowledge_source_ids,
+            v.quick_reply_access_mode,
+            v.quick_reply_template_ids,
             v.trigger_config,
             v.created_by as version_created_by,
             a.created_by as agent_created_by`;
@@ -232,6 +239,8 @@ function mapAgentConfigRow(r: Row): PublishedAgentConfig {
     // `?? []` cobre o clone sem a 0181: sem a coluna, o agente cai no ponteiro
     // legado abaixo em vez de ficar sem material nenhum.
     knowledgeSourceIds: r.knowledge_source_ids ?? [],
+    quickReplyAccessMode: r.quick_reply_access_mode ?? 'none',
+    quickReplyTemplateIds: r.quick_reply_template_ids ?? [],
     activeKbVersionId: r.active_kb_version_id,
     ragTopK,
     ragSimilarityThreshold,

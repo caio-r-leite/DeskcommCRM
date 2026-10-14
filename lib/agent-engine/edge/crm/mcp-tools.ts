@@ -55,6 +55,8 @@ export interface McpTurnTools {
   cleanup: () => Promise<void>;
 }
 
+const QUICK_REPLY_TOOL_ID = 'crm_execute_quick_reply';
+
 export async function buildMcpTurnTools(
   cfg: CrmEdgeConfig,
   /**
@@ -62,16 +64,22 @@ export async function buildMcpTurnTools(
    * Obrigatório de propósito: `null` só onde não há cliente (o ensaio do agente);
    * omiti-lo num turno de conversa abriria as leituras escopadas por ele.
    */
-  ids: { organizationId: string; jobId: string; contactId: string | null },
+  ids: { organizationId: string; jobId: string; contactId: string | null; conversationId?: string | null },
   agentConfig: PublishedAgentConfig,
   log: Logger,
-  options?: { readOnly: boolean },
+  options?: { readOnly: boolean; quickReplies?: boolean },
 ): Promise<McpTurnTools | null> {
   const callbackFiltered = filtrarToolsComCallbackDesabilitado(
     agentConfig.toolIds,
     agentConfig.followup,
   );
   const allowed = callbackFiltered.filter((id) => !BLOCKED_TOOL_IDS.has(id));
+  if (
+    options?.quickReplies === true &&
+    !options.readOnly &&
+    (agentConfig.quickReplyAccessMode ?? 'none') !== 'none' &&
+    !allowed.includes(QUICK_REPLY_TOOL_ID)
+  ) allowed.push(QUICK_REPLY_TOOL_ID);
   const blocked = agentConfig.toolIds.filter((id) => BLOCKED_TOOL_IDS.has(id));
   if (blocked.length > 0) {
     // A tela não oferece mais estas capacidades (a rota serve `marcavel: false`
@@ -117,6 +125,8 @@ export async function buildMcpTurnTools(
     },
     apiTokenId: ephemeral.id,
     requestId: ids.jobId,
+    agentVersionId: agentConfig.versionId,
+    ...(ids.conversationId ? { conversaDoTurno: ids.conversationId } : {}),
     supabase: cfg.supabase,
   };
   const auth: McpAuthResult = {
@@ -162,6 +172,29 @@ export async function buildMcpTurnTools(
     ...(ids.contactId ? { contatoDoTurno: ids.contactId } : {}),
     ...(servidorExterno ? { servidorMcpExterno: servidorExterno } : {}),
   });
+
+  const quickReply = tools[QUICK_REPLY_TOOL_ID];
+  if (quickReply && agentConfig.quickReplyAccessMode === 'selected') {
+    let query = cfg.supabase
+      .from('message_templates')
+      .select('id, title, shortcut')
+      .eq('organization_id', ids.organizationId)
+      .is('owner_user_id', null);
+    query = query.in('id', agentConfig.quickReplyTemplateIds ?? []);
+    const { data } = await query.order('title').limit(100);
+    const names = (data ?? []).map((item) =>
+      item.shortcut ? `${item.title} (atalho: ${item.shortcut})` : item.title,
+    );
+    tools[QUICK_REPLY_TOOL_ID] = {
+      ...quickReply,
+      description: `${quickReply.description ?? ''}\nRespostas permitidas neste turno: ${names.length ? names.join('; ') : 'nenhuma'}.`,
+    } as Tool;
+  } else if (quickReply && agentConfig.quickReplyAccessMode === 'all') {
+    tools[QUICK_REPLY_TOOL_ID] = {
+      ...quickReply,
+      description: `${quickReply.description ?? ''}\nUse o título ou atalho exato citado nas instruções do agente; não adivinhe nomes.`,
+    } as Tool;
+  }
 
   return {
     tools,

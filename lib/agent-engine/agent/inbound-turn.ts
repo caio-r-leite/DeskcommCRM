@@ -1,4 +1,5 @@
 import { prospectingConversationContext } from "@/lib/prospecting/context";
+import { hasAgentTurnTools } from "@/lib/quick-replies/agent-policy";
 import { setExecutionAgentOperation } from '@/lib/atendimento/fronteira-server';
 import { TIPOS_DE_CASO, TIPOS_DE_CASO_PARA_A_IA } from "@/lib/ai/case-copy";
 import { DEFAULT_CHANNEL_PROVIDER } from '@/lib/channels/capabilities';
@@ -4206,7 +4207,10 @@ async function executarTurnoDoAgente(
   // ver edge/crm/mcp-tools.ts). As 8 tools do engine têm precedência de nome.
   let mcpCleanup: (() => Promise<void>) | null = null;
   try {
-    if (agentConfig !== null && agentConfig.toolIds.length > 0) {
+    if (
+      agentConfig !== null &&
+      hasAgentTurnTools(agentConfig.toolIds, agentConfig.quickReplyAccessMode)
+    ) {
       try {
         // As de OPERAÇÃO saem antes de serem montadas, quando o Operador as tem.
         // Medido: são elas que carregavam 2 dos 3 vazamentos (o DADO que devolvem),
@@ -4234,10 +4238,11 @@ async function executarTurnoDoAgente(
             organizationId: tenantId,
             jobId: preview?.runId ?? liveJob().id,
             contactId: leadId || null,
+            conversationId: input.conversationId,
           },
           configDoTurno,
           runLog,
-          preview ? { readOnly: true } : undefined,
+          preview ? { readOnly: true } : { readOnly: false, quickReplies: true },
         );
         if (mcp !== null) {
           mcpCleanup = mcp.cleanup;
