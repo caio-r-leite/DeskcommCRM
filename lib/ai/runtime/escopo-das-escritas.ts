@@ -64,6 +64,9 @@ export const ESCOPO_DAS_ESCRITAS: Readonly<Record<string, Readonly<Record<string
   crm_assign_conversation: { conversation_id: "conversa", to_user_id: "configuracao" },
   crm_manage_tags: { target_id: "alvo_de_tag" },
   crm_send_whatsapp_message: { conversation_id: "conversa" },
+  // O modelo informa apenas o título/atalho. Conversa e contato vêm do turno
+  // confiável e o executor volta a conferi-los antes de qualquer efeito.
+  crm_execute_quick_reply: {},
   crm_request_human_handoff: { conversation_id: "conversa", target_user_id: "configuracao" },
   crm_resume_ai_attendance: { conversation_id: "conversa" },
 
