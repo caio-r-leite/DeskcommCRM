@@ -55,7 +55,11 @@ import { logger } from "@/lib/logger";
 import { ORIGEM_DO_WHATSAPP } from "@/lib/channels/origem-do-negocio";
 
 import { lerClientePelaAgenda } from "@/lib/contacts/cliente-pela-agenda";
-import { ehIdentificadorTecnico, rotuloDoContato, SEM_NOME } from "@/lib/contacts/rotulo-do-contato";
+import {
+  ehIdentificadorTecnico,
+  rotuloDoContato,
+  SEM_NOME,
+} from "@/lib/contacts/rotulo-do-contato";
 
 import { emitLeadActivity } from "./activity-emitter";
 
@@ -134,11 +138,30 @@ export interface DadosDoNascimento {
  * conserto — e divergir em silêncio, porque o card apareceria, só que no lugar
  * errado.
  */
-async function primeiraEtapa(
+async function etapaDeEntrada(
   db: SupabaseClient,
   organizationId: string,
   pipelineId: string,
+  escolhidaId: string | null = null,
 ): Promise<string | null> {
+  // A configuração explícita vence a posição. Mesmo assim ela é relida com
+  // organização, funil e estado: uma coluna arquivada entre o carregamento da
+  // tela e a mensagem não pode receber card. Nesse caso o fallback abaixo
+  // mantém o contato visível na primeira etapa aberta, em vez de perdê-lo.
+  if (escolhidaId) {
+    const { data: escolhida } = await db
+      .from("crm_stages")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("pipeline_id", pipelineId)
+      .eq("id", escolhidaId)
+      .eq("is_archived", false)
+      .eq("is_won", false)
+      .eq("is_lost", false)
+      .maybeSingle();
+    if (escolhida?.id) return escolhida.id as string;
+  }
+
   const { data: etapa } = await db
     .from("crm_stages")
     .select("id")
@@ -186,21 +209,26 @@ export async function funilDeEntrada(
   if (ehCliente) {
     const { data: funilDeClientes } = await db
       .from("crm_pipelines")
-      .select("id")
+      .select("id, entry_stage_id")
       .eq("organization_id", organizationId)
       .eq("is_client_pipeline", true)
       .eq("is_archived", false)
       .maybeSingle();
 
     if (funilDeClientes) {
-      const stageId = await primeiraEtapa(db, organizationId, funilDeClientes.id as string);
+      const stageId = await etapaDeEntrada(
+        db,
+        organizationId,
+        funilDeClientes.id as string,
+        (funilDeClientes.entry_stage_id as string | null | undefined) ?? null,
+      );
       if (stageId) return { pipelineId: funilDeClientes.id as string, stageId };
     }
   }
 
   const { data: funil } = await db
     .from("crm_pipelines")
-    .select("id")
+    .select("id, entry_stage_id")
     .eq("organization_id", organizationId)
     .eq("is_default", true)
     .eq("is_archived", false)
@@ -208,7 +236,12 @@ export async function funilDeEntrada(
 
   if (!funil) return { erro: "sem_funil_de_entrada" };
 
-  const stageId = await primeiraEtapa(db, organizationId, funil.id as string);
+  const stageId = await etapaDeEntrada(
+    db,
+    organizationId,
+    funil.id as string,
+    (funil.entry_stage_id as string | null | undefined) ?? null,
+  );
   if (!stageId) return { erro: "sem_etapa" };
   return { pipelineId: funil.id as string, stageId };
 }
@@ -231,19 +264,22 @@ async function destinoDaCampanha(
   stageId: string | null,
 ): Promise<{ pipelineId: string; stageId: string } | { erro: MotivoSemLead }> {
   if (stageId) return { pipelineId, stageId };
-  const { data: etapa } = await db
-    .from("crm_stages")
-    .select("id")
+  const { data: funil } = await db
+    .from("crm_pipelines")
+    .select("entry_stage_id")
     .eq("organization_id", organizationId)
-    .eq("pipeline_id", pipelineId)
+    .eq("id", pipelineId)
     .eq("is_archived", false)
-    .eq("is_won", false)
-    .eq("is_lost", false)
-    .order("position", { ascending: true })
-    .limit(1)
     .maybeSingle();
-  if (!etapa) return { erro: "sem_etapa" };
-  return { pipelineId, stageId: (etapa as { id: string }).id };
+  if (!funil) return { erro: "sem_funil_de_entrada" };
+  const entrada = await etapaDeEntrada(
+    db,
+    organizationId,
+    pipelineId,
+    (funil.entry_stage_id as string | null | undefined) ?? null,
+  );
+  if (!entrada) return { erro: "sem_etapa" };
+  return { pipelineId, stageId: entrada };
 }
 
 /**
@@ -273,7 +309,9 @@ export async function garantirLeadDaConversa(
     // `first_service_at` viaja no select que JÁ existe: decidir o funil não custa
     // uma consulta a mais no caminho quente da ingestão. É por isso que o fato
     // mora numa coluna de `contacts`, e não é derivado da agenda a cada inbound.
-    .select("is_blocked,is_personal,display_name,name,phone_number,source,source_metadata,first_service_at")
+    .select(
+      "is_blocked,is_personal,display_name,name,phone_number,source,source_metadata,first_service_at",
+    )
     .eq("organization_id", organizationId)
     .eq("id", contactId)
     .maybeSingle();

@@ -102,6 +102,9 @@ export const AUDIT_ACTIONS = [
   "profile.updated",
   "org.updated",
   "pipeline.config_updated",
+  // Destino determinístico do card que nasce de uma conversa. Separado da
+  // edição genérica porque muda, de uma vez, o funil padrão e a coluna inicial.
+  "pipeline.automatic_entry_configured",
   "mfa.recovery_codes_regenerated",
   "notification_prefs.changed",
   "onboarding.welcome_completed",

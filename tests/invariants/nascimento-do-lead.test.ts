@@ -44,6 +44,8 @@ const ORG_SEM_FUNIL = "1ead7e00-0000-4000-8000-000000000002";
 const ORG_SO_FECHADAS = "1ead7e00-0000-4000-8000-000000000003";
 /** Org com etapa de GANHO na posição 0 — a armadilha do §6. */
 const ORG_GANHO_PRIMEIRO = "1ead7e00-0000-4000-8000-000000000004";
+/** Org cuja coluna de entrada é escolhida, e não inferida pela posição. */
+const ORG_ETAPA_ESCOLHIDA = "1ead7e00-0000-4000-8000-000000000005";
 
 const CONVERSA = "1ead7e00-0000-4000-8000-00000000c001";
 
@@ -68,6 +70,7 @@ beforeAll(async () => {
   await criarOrg(ORG_SEM_FUNIL, "org-nascimento-sem-funil");
   await criarOrg(ORG_SO_FECHADAS, "org-nascimento-so-fechadas");
   await criarOrg(ORG_GANHO_PRIMEIRO, "org-nascimento-ganho-primeiro");
+  await criarOrg(ORG_ETAPA_ESCOLHIDA, "org-nascimento-etapa-escolhida");
 
   // ORG_SEM_FUNIL: apaga o que o trigger semeou. Um tenant que arquivou ou
   // apagou o funil padrão chega neste estado sem fazer nada de errado.
@@ -100,7 +103,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await pool.query("delete from organizations where id = any($1)", [
-    [ORG_VIVA, ORG_SEM_FUNIL, ORG_SO_FECHADAS, ORG_GANHO_PRIMEIRO],
+    [ORG_VIVA, ORG_SEM_FUNIL, ORG_SO_FECHADAS, ORG_GANHO_PRIMEIRO, ORG_ETAPA_ESCOLHIDA],
   ]);
   await pool.end();
 });
@@ -211,9 +214,10 @@ describe("o lead NASCE", () => {
     });
     expect(r.criado).toBe(true);
     if (!r.criado) return;
-    const { rows } = await pool.query<{ title: string }>("select title from crm_leads where id = $1", [
-      r.leadId,
-    ]);
+    const { rows } = await pool.query<{ title: string }>(
+      "select title from crm_leads where id = $1",
+      [r.leadId],
+    );
     expect(rows[0]!.title).toBe("Conhecido Andrade");
   });
 
@@ -222,7 +226,9 @@ describe("o lead NASCE", () => {
     // `Contato 543134@lid` gravado. Sem a guarda, o kanban — que hoje está
     // limpo — receberia o resíduo no primeiro card.
     const contato = await criarContato(ORG_VIVA, "Contato 543134@lid");
-    await pool.query("update contacts set phone_number = '+5531955554444' where id = $1", [contato]);
+    await pool.query("update contacts set phone_number = '+5531955554444' where id = $1", [
+      contato,
+    ]);
     const r = await garantirLeadDaConversa(db, {
       organizationId: ORG_VIVA,
       contactId: contato,
@@ -231,9 +237,10 @@ describe("o lead NASCE", () => {
     });
     expect(r.criado).toBe(true);
     if (!r.criado) return;
-    const { rows } = await pool.query<{ title: string }>("select title from crm_leads where id = $1", [
-      r.leadId,
-    ]);
+    const { rows } = await pool.query<{ title: string }>(
+      "select title from crm_leads where id = $1",
+      [r.leadId],
+    );
     expect(rows[0]!.title).not.toMatch(/@lid|@c\.us/);
     // Cai no telefone, que é informação útil — melhor que "Sem nome".
     expect(rows[0]!.title).toBe("+5531955554444");
@@ -250,9 +257,10 @@ describe("o lead NASCE", () => {
     expect(r.criado).toBe(true);
     if (!r.criado) return;
 
-    const { rows } = await pool.query<{ title: string }>("select title from crm_leads where id = $1", [
-      r.leadId,
-    ]);
+    const { rows } = await pool.query<{ title: string }>(
+      "select title from crm_leads where id = $1",
+      [r.leadId],
+    );
     expect(rows[0]!.title).toBe("Novo contato pelo WhatsApp");
   });
 });
@@ -295,10 +303,9 @@ describe("UM lead por DEMANDA, não um por mensagem", () => {
     expect(primeira.criado).toBe(true);
     if (!primeira.criado) return;
 
-    await pool.query(
-      "update crm_leads set status = 'won', closed_at = now() where id = $1",
-      [primeira.leadId],
-    );
+    await pool.query("update crm_leads set status = 'won', closed_at = now() where id = $1", [
+      primeira.leadId,
+    ]);
 
     const segunda = await garantirLeadDaConversa(db, dados);
     // Sem o filtro `status='open'`, este caso devolveria `ja_existe` — é ele que
@@ -404,6 +411,58 @@ describe("a etapa de entrada nunca é uma etapa de fechamento", () => {
     expect(rows[0]!.name).toBe("Entrada");
     expect(rows[0]!.is_won).toBe(false);
     expect(rows[0]!.is_lost).toBe(false);
+  });
+});
+
+describe("destino configurável do card automático", () => {
+  it("usa a coluna escolhida mesmo quando ela não é a primeira", async () => {
+    const { rows: funis } = await pool.query<{ id: string }>(
+      "select id from crm_pipelines where organization_id = $1 and is_default = true",
+      [ORG_ETAPA_ESCOLHIDA],
+    );
+    const pipelineId = funis[0]!.id;
+    const { rows: etapas } = await pool.query<{ id: string }>(
+      `insert into crm_stages (organization_id, pipeline_id, name, slug, position)
+       values ($1, $2, 'Entrada escolhida', 'entrada-escolhida', 99999)
+       returning id`,
+      [ORG_ETAPA_ESCOLHIDA, pipelineId],
+    );
+    const escolhida = etapas[0]!.id;
+
+    await pool.query("select public.fn_configurar_entrada_automatica($1, $2, $3)", [
+      ORG_ETAPA_ESCOLHIDA,
+      pipelineId,
+      escolhida,
+    ]);
+
+    expect(await funilDeEntrada(db, ORG_ETAPA_ESCOLHIDA)).toEqual({
+      pipelineId,
+      stageId: escolhida,
+    });
+  });
+
+  it("o banco recusa apontar para uma coluna de outro funil", async () => {
+    const { rows: funis } = await pool.query<{ id: string }>(
+      "select id from crm_pipelines where organization_id = $1 and is_default = true",
+      [ORG_ETAPA_ESCOLHIDA],
+    );
+    const { rows: outro } = await pool.query<{ id: string }>(
+      `insert into crm_pipelines (organization_id, name, slug, position)
+       values ($1, 'Outro fluxo', 'outro-fluxo', 99999) returning id`,
+      [ORG_ETAPA_ESCOLHIDA],
+    );
+    const { rows: etapaDeOutro } = await pool.query<{ id: string }>(
+      `insert into crm_stages (organization_id, pipeline_id, name, slug, position)
+       values ($1, $2, 'Etapa alheia', 'etapa-alheia', 1000) returning id`,
+      [ORG_ETAPA_ESCOLHIDA, outro[0]!.id],
+    );
+
+    await expect(
+      pool.query("update crm_pipelines set entry_stage_id = $1 where id = $2", [
+        etapaDeOutro[0]!.id,
+        funis[0]!.id,
+      ]),
+    ).rejects.toMatchObject({ code: "PT422" });
   });
 });
 

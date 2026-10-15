@@ -6,6 +6,11 @@ import { moduloLigado } from "@/lib/instalacao/modulos";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { PipelinesClient, type EtapaDoFunil, type PipelineRow } from "./_client";
+import {
+  EntradaAutomatica,
+  type EtapaDaEntradaAutomatica,
+  type FunilDaEntradaAutomatica,
+} from "./_automatic-entry";
 import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
@@ -36,7 +41,7 @@ export default async function PipelinesSettingsPage() {
   const supabase = await createClient();
   const { data } = await supabase
     .from("crm_pipelines")
-    .select("id, name, slug, vocabulary, settings")
+    .select("id, name, slug, vocabulary, settings, is_default, entry_stage_id")
     .eq("organization_id", activeOrg.orgId)
     .eq("is_archived", false)
     .order("position");
@@ -49,11 +54,13 @@ export default async function PipelinesSettingsPage() {
   // do servidor: o editor não espera rede nenhuma para renderizar.
   const { data: etapas } = await supabase
     .from("crm_stages")
-    .select("id, pipeline_id, name, is_archived")
+    .select("id, pipeline_id, name, is_archived, is_won, is_lost")
     .eq("organization_id", activeOrg.orgId)
     .order("position", { ascending: true });
-  const etapasPorFunil: Record<string, EtapaDoFunil[]> = {};
-  for (const e of (etapas ?? []) as Array<EtapaDoFunil & { pipeline_id: string }>) {
+  const etapasPorFunil: Record<string, Array<EtapaDoFunil & EtapaDaEntradaAutomatica>> = {};
+  for (const e of (etapas ?? []) as Array<
+    EtapaDoFunil & EtapaDaEntradaAutomatica & { pipeline_id: string }
+  >) {
     (etapasPorFunil[e.pipeline_id] ??= []).push(e);
   }
   const idioma = user.idioma;
@@ -74,6 +81,10 @@ export default async function PipelinesSettingsPage() {
           .
         </p>
       </header>
+      <EntradaAutomatica
+        pipelines={pipelines as Array<PipelineRow & FunilDaEntradaAutomatica>}
+        etapas={etapasPorFunil}
+      />
       <PipelinesClient
         pipelines={pipelines}
         etapas={etapasPorFunil}

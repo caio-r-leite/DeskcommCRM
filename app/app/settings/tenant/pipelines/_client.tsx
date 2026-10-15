@@ -36,6 +36,9 @@ export interface PipelineRow {
   slug: string;
   vocabulary: Record<string, string> | null;
   settings: Record<string, unknown> | null;
+  /** Destino do nascimento automático; lido pelo painel irmão desta tela. */
+  is_default?: boolean;
+  entry_stage_id?: string | null;
 }
 
 /**
@@ -75,6 +78,8 @@ export interface EtapaDoFunil {
   id: string;
   name: string;
   is_archived: boolean;
+  is_won?: boolean;
+  is_lost?: boolean;
 }
 
 /**

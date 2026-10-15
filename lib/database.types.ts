@@ -5478,6 +5478,7 @@ export type Database = {
         Row: {
           created_at: string
           description: string | null
+          entry_stage_id: string | null
           id: string
           is_archived: boolean
           is_default: boolean
@@ -5493,6 +5494,7 @@ export type Database = {
         Insert: {
           created_at?: string
           description?: string | null
+          entry_stage_id?: string | null
           id?: string
           is_archived?: boolean
           is_default?: boolean
@@ -5508,6 +5510,7 @@ export type Database = {
         Update: {
           created_at?: string
           description?: string | null
+          entry_stage_id?: string | null
           id?: string
           is_archived?: boolean
           is_default?: boolean
@@ -5521,6 +5524,13 @@ export type Database = {
           vocabulary?: Json
         }
         Relationships: [
+          {
+            foreignKeyName: "crm_pipelines_entry_stage_id_fkey"
+            columns: ["entry_stage_id"]
+            isOneToOne: false
+            referencedRelation: "crm_stages"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "crm_pipelines_organization_id_fkey"
             columns: ["organization_id"]
@@ -10353,6 +10363,10 @@ export type Database = {
       }
     }
     Functions: {
+      fn_configurar_entrada_automatica: {
+        Args: { p_org: string; p_pipeline: string; p_stage: string }
+        Returns: Json
+      }
       fn_authorize_ai_form_capture: {
         Args: { p_organization_id: string; p_source_id: string; p_lead_id: string; p_contact_id: string; p_request_id: string; p_ttl_ms: number }
         Returns: boolean

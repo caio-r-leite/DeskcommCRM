@@ -66,9 +66,11 @@ uma clínica, uma imobiliária e um infoprodutor não têm o mesmo desenho.
 exclusividade (`lib/pipelines/pipeline-editing.ts`). Não se cria campo novo para o mesmo conceito
 (DIRC — *Duplicar?* não: já vive aqui).
 
-**A etapa de entrada é a de menor `position`** entre as não-arquivadas. Não se cria flag
-`is_entry`: a ordem do funil **já** diz qual é a primeira, e um segundo lugar para a mesma verdade
-é onde a divergência nasce.
+**A etapa de entrada é configurável em `crm_pipelines.entry_stage_id`.** Ela precisa ser uma etapa
+aberta, ativa e do próprio funil. Quando a chave ainda não foi configurada — inclusive em bancos
+atualizados de uma versão anterior — o fallback continua sendo a etapa aberta de menor `position`.
+Não se cria `is_entry` em cada etapa: o destino é uma referência única do funil, com FK, e não uma
+coleção de flags que poderia deixar duas colunas marcadas.
 
 ---
 
@@ -81,7 +83,8 @@ mensagem chega → contato (existe) → [LEAD]  ← a peça nova
 ```
 
 **Quando:** primeira mensagem **inbound** de um contato que não tem lead aberto.
-**Onde:** funil `is_default` da organização, etapa de menor `position`.
+**Onde:** funil `is_default` da organização, na `entry_stage_id` configurada; sem configuração,
+etapa aberta de menor `position`.
 **Quem:** o runtime, determinístico — não o modelo (mesma razão do checkpoint imposto na spec 16).
 
 **Não nasce lead** quando: é grupo (`@g.us`), o contato está bloqueado/opt-out, ou já existe lead
@@ -156,10 +159,10 @@ superfície boa e cobrança de completude.
 | 1 | quem me alimenta? | ingest do WAHA (`lib/waha/`), na primeira inbound |
 | 2 | quem eu alimento? | kanban, timeline do lead, Operador (spec 16), motor de follow-up, Radar de Risco |
 | 3 | que registro emito? | `crm_lead_activities` (nascimento e cada movimentação, com evidência) |
-| 4 | onde apareço na tela? | card no kanban + linha na timeline do contato |
+| 4 | onde apareço na tela? | card no kanban + linha na timeline do contato + destino explícito em Configurações › Funis |
 | 5 | por qual porta? | `/app/kanban` (já registrada) |
 | 6 | anti-morte? | o lead entra no funil ⇒ passa a ser visto pelo Radar e pelo follow-up. **É o anti-morte que hoje não existe: conversa fora do funil não é cobrada por ninguém** |
-| 7 | onde se configura? | funil de entrada (`is_default`, tela de funis) · escopo do agente (aba do Operador) · tradução de etapas (`settings/tenant/pipelines`) |
+| 7 | onde se configura? | fluxo (`is_default`) e coluna (`entry_stage_id`) no painel “Card automático no CRM” em `settings/tenant/pipelines` · escopo do agente (aba do Operador) · tradução de etapas na mesma tela |
 | 8 | continuidade IA↔humano? | o lead carrega o contato ⇒ o handoff entrega histórico **e** posição no funil |
 | 9 | laço de retorno? | movimentação do agente que o humano **desfaz** vira sinal — sem isso ele erra igual amanhã (invariante 7) |
 | 10 | mapa atualizado? | `docs/architecture/` ganha a aresta conversa→lead |

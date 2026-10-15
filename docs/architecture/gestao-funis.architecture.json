@@ -20,11 +20,13 @@
     { "id": "client", "lane": "humano", "col": 2, "type": "frontend", "label": "FunisClient", "sublabel": "criar · renomear · ↑↓ · padrão · arquivar" },
     { "id": "hooks", "lane": "humano", "col": 3, "type": "frontend", "label": "usePipelines", "sublabel": "só mutations — a leitura é do servidor" },
     { "id": "board", "lane": "humano", "col": 4, "type": "frontend", "label": "/app/pipelines/[id]", "sublabel": "o quadro do funil escolhido" },
+    { "id": "entrada-ui", "lane": "humano", "col": 1, "type": "frontend", "label": "Card automático no CRM", "sublabel": "Configurações › Funis · escolhe fluxo + coluna" },
 
     { "id": "post", "lane": "borda", "col": 2, "type": "api", "label": "POST /api/v1/pipelines", "sublabel": "funil + 4 etapas · compensa se as etapas falharem" },
     { "id": "patch", "lane": "borda", "col": 3, "type": "api", "label": "PATCH /api/v1/pipelines/[id]", "sublabel": "nome · descrição · ordem · padrão" },
     { "id": "delete", "lane": "borda", "col": 4, "type": "api", "label": "DELETE /api/v1/pipelines/[id]", "sublabel": "arquiva; ?definitivo=1 só no caso limpo" },
     { "id": "funis", "lane": "borda", "col": 1, "type": "service", "label": "_funis.ts", "sublabel": "lerFunis · lerDependencias · corpo · conflitoDoBanco" },
+    { "id": "entrada-api", "lane": "borda", "col": 4, "type": "api", "label": "POST /pipelines/automatic-entry", "sublabel": "manager+ · troca atômica · auditoria" },
 
     { "id": "regras", "lane": "regra", "col": 2, "type": "service", "label": "pipeline-editing.ts", "sublabel": "as recusas, em português, citando o nome" },
     { "id": "slug", "lane": "regra", "col": 1, "type": "service", "label": "stage-editing (reuso)", "sublabel": "chaveDeNome dobra acento · slugDeNome" },
@@ -37,7 +39,8 @@
 
     { "id": "leads", "lane": "dependente", "col": 2, "type": "database", "label": "crm_leads", "sublabel": "FK ON DELETE RESTRICT" },
     { "id": "sources", "lane": "dependente", "col": 3, "type": "database", "label": "webhook_sources", "sublabel": "FK ON DELETE **CASCADE** — o perigo" },
-    { "id": "rules", "lane": "dependente", "col": 4, "type": "database", "label": "automation_rules", "sublabel": "pipeline_id dentro de jsonb — SEM FK" }
+    { "id": "rules", "lane": "dependente", "col": 4, "type": "database", "label": "automation_rules", "sublabel": "pipeline_id dentro de jsonb — SEM FK" },
+    { "id": "nascimento", "lane": "dependente", "col": 1, "type": "service", "label": "nascimento-do-lead.ts", "sublabel": "mensagem inbound sem negócio aberto → card" }
   ],
   "edges": [
     { "id": "e1", "from": "lista", "to": "pipelines", "label": "select … .eq(organization_id, org ATIVA) — a RLS sozinha misturava as orgs" },
@@ -69,7 +72,12 @@
     { "id": "e27", "from": "delete", "to": "pipelines", "label": "is_archived=true (ou delete no caso limpo)" },
     { "id": "e28", "from": "trigger", "to": "pipelines", "label": "toda org nova nasce com 'Pedidos' — a razão de a clínica precisar desta tela" },
     { "id": "e29", "from": "trigger", "to": "stages", "label": "8 etapas de e-commerce" },
-    { "id": "e30", "from": "board", "to": "stages", "label": "as colunas do quadro" }
+    { "id": "e30", "from": "board", "to": "stages", "label": "as colunas do quadro" },
+    { "id": "e31", "from": "entrada-ui", "to": "entrada-api", "label": "POST { pipeline_id, stage_id }" },
+    { "id": "e32", "from": "entrada-api", "to": "pipelines", "label": "fn_configurar_entrada_automatica: is_default + entry_stage_id numa transação" },
+    { "id": "e33", "from": "entrada-api", "to": "stages", "label": "valida etapa ativa, aberta e do mesmo funil" },
+    { "id": "e34", "from": "pipelines", "to": "nascimento", "label": "funil padrão + coluna escolhida; fallback para a primeira aberta" },
+    { "id": "e35", "from": "nascimento", "to": "leads", "label": "cria um card por demanda e emite lead.created + timeline" }
   ],
   "cards": [
     {
