@@ -1,5 +1,5 @@
 "use client";
-import { useState, type RefObject } from "react";
+import { useCallback, useState, type RefObject } from "react";
 import { useT } from "@/hooks/i18n/useT";
 import Link from "next/link";
 import {
@@ -44,6 +44,11 @@ import type { ConversationWithContact } from "@/hooks/inbox/useConversationsReal
 import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
 import { phoneForDisplay } from "@/lib/channels/phone-variants";
 import { rotuloDoCanalDaConversa } from "@/lib/channels/estado";
+import { ArchiveConversationDialog } from "@/components/inbox/ArchiveConversationDialog";
+import {
+  CONFIGURACAO_PADRAO_DO_ARQUIVAMENTO,
+  type ConfiguracaoDoArquivamento,
+} from "@/lib/inbox/configuracao-do-arquivamento";
 
 interface Props {
   conversation: ConversationWithContact;
@@ -57,6 +62,7 @@ interface Props {
   botaoBuscaRef?: RefObject<HTMLButtonElement | null>;
   /** Seleciona outra conversa no Inbox — a aba Número do Transferir abre a do outro número. */
   onAbrirConversa?: (id: string) => void;
+  archiveDialogConfig?: ConfiguracaoDoArquivamento;
 }
 
 /**
@@ -91,6 +97,7 @@ export function ConversationHeader({
   onBuscar,
   buscaAberta,
   botaoBuscaRef,
+  archiveDialogConfig = CONFIGURACAO_PADRAO_DO_ARQUIVAMENTO,
 }: Props) {
   const t = useT();
   const { user, activeOrg } = useAuth();
@@ -120,6 +127,14 @@ export function ConversationHeader({
   const status = conversation.status;
   const isMineAssigned = conversation.assigned_to_user_id === user.id;
   const isOpen = status === "open" || conversation.assigned_to_user_id == null;
+  const executarArquivamento = useCallback(
+    () =>
+      arquivar.mutateAsync({
+        conversation_id: conversation.id,
+        expected_revision: conversation.service_revision,
+      }).then(() => undefined),
+    [arquivar, conversation.id, conversation.service_revision],
+  );
 
   // Marcar/desmarcar pessoal (spec 21, etapa 15 — botão no cabeçalho).
   //
@@ -449,7 +464,10 @@ export function ConversationHeader({
             size="sm"
             variant="ghost"
             disabled={arquivar.isPending}
-            onClick={() => setConfirmArquivarOpen(true)}
+            onClick={() => {
+              if (archiveDialogConfig.enabled) setConfirmArquivarOpen(true);
+              else void executarArquivamento();
+            }}
           >
             {arquivar.isPending ? t("Arquivando...") : t("Arquivar")}
           </Button>
@@ -528,6 +546,18 @@ export function ConversationHeader({
             : undefined
         }
       />
+      {confirmArquivarOpen && (
+        <ArchiveConversationDialog
+          open
+          config={archiveDialogConfig}
+          quantidade={1}
+          contactId={c?.id ?? null}
+          pending={arquivar.isPending}
+          encerraAtendimento={!encerrada}
+          onCancel={() => setConfirmArquivarOpen(false)}
+          onArchive={executarArquivamento}
+        />
+      )}
       <AlertDialog open={confirmFecharOpen} onOpenChange={setConfirmFecharOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -547,42 +577,6 @@ export function ConversationHeader({
               }
             >
               {t("Fechar")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-      {/* A confirmação precisa dizer o que ACONTECE, e o que acontece depende
-          do estado. `fn_conversation_set_status` trata `archived` como
-          terminal: encerra o atendimento (grava `service_closed_at`,
-          incrementa a revisão) e, com isso, desfaz a pausa do automático. Um
-          atendente que leia "arquivar = tirar da vista, volto depois"
-          encerraria o atendimento sem saber — e o robô voltaria a responder
-          no próximo "oi" do cliente. Por isso a descrição só aparece quando
-          `!encerrada`: quando já está encerrada, arquivar não muda o
-          atendimento, só o lugar onde a conversa mora. */}
-      <AlertDialog open={confirmArquivarOpen} onOpenChange={setConfirmArquivarOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("Arquivar esta conversa?")}</AlertDialogTitle>
-            {!encerrada && (
-              <AlertDialogDescription>
-                {t(
-                  "Arquivar encerra este atendimento e guarda a conversa no histórico. Se o cliente escrever de novo, ela volta.",
-                )}
-              </AlertDialogDescription>
-            )}
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("Cancelar")}</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() =>
-                arquivar.mutate({
-                  conversation_id: conversation.id,
-                  expected_revision: conversation.service_revision,
-                })
-              }
-            >
-              {t("Arquivar")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

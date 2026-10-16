@@ -119,6 +119,24 @@ describe("painel de respostas rápidas", () => {
     expect(screen.getByDisplayValue("Mensagem cadastrada")).toBeTruthy();
   });
 
+  it("filtra enquanto digita, sem exigir acento nem o separador do atalho", () => {
+    renderPanel();
+    const busca = screen.getByPlaceholderText("Pesquisar resposta rápida");
+
+    fireEvent.change(busca, { target: { value: "catalogo" } });
+    expect(screen.getByText("Apresentação")).toBeTruthy();
+
+    fireEvent.change(busca, { target: { value: "apre sentacao" } });
+    expect(screen.getByText("Apresentação")).toBeTruthy();
+
+    fireEvent.change(busca, { target: { value: "comercial" } });
+    expect(screen.getByText("Apresentação")).toBeTruthy();
+
+    fireEvent.change(busca, { target: { value: "nao existe" } });
+    expect(screen.queryByText("Apresentação")).toBeNull();
+    expect(h.post).not.toHaveBeenCalled();
+  });
+
   it("envia ao clicar no card e registra falha real devolvida pelo canal", async () => {
     h.post.mockImplementation((url: string) => {
       if (url === "/api/v1/message-template-executions") {

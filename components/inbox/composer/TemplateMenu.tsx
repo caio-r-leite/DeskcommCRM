@@ -2,6 +2,7 @@
 import { useT } from "@/hooks/i18n/useT";
 import type { MessageTemplate } from "@/hooks/inbox/useMessageTemplates";
 import { ChatCircle, ImageIcon, VideoCamera } from "@/lib/ui/icons";
+import { respostaRapidaCorresponde } from "@/lib/inbox/busca-de-resposta-rapida";
 
 /** Estado do slash-menu a partir do texto do composer. Puro (testável). */
 export function resolveSlash(text: string): { open: boolean; query: string } {
@@ -22,10 +23,7 @@ interface Props {
 export function TemplateMenu({ open, query, templates, onPick, onClose: _onClose }: Props) {
   const t = useT();
   if (!open) return null;
-  const q = query.toLowerCase();
-  const filtered = templates.filter(
-    (tpl) => tpl.title.toLowerCase().includes(q) || (tpl.shortcut ?? "").toLowerCase().includes(q),
-  );
+  const filtered = templates.filter((template) => respostaRapidaCorresponde(template, query));
   return (
     <div
       className="absolute bottom-14 left-3 z-20 max-h-64 w-80 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg"

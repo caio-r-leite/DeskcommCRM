@@ -11,6 +11,8 @@ import { Art15Form } from "./_art15";
 import { ZonaDePerigoDaOrganizacao } from "./_danger-zone";
 import { TenantForm } from "./_form";
 import { InterfaceDaEmpresaForm } from "./_interface";
+import { ConfiguracaoDoArquivamentoForm } from "./_arquivamento";
+import { lerConfiguracaoDoArquivamento } from "@/lib/inbox/configuracao-do-arquivamento";
 
 export const dynamic = "force-dynamic";
 
@@ -98,11 +100,9 @@ export default async function TenantSettingsPage() {
           }}
         />
       )}
+      {row && <InterfaceDaEmpresaForm initial={row.interface_settings} role={activeOrg.role} />}
       {row && (
-        <InterfaceDaEmpresaForm
-          initial={row.interface_settings}
-          role={activeOrg.role}
-        />
+        <ConfiguracaoDoArquivamentoForm initial={lerConfiguracaoDoArquivamento(row.settings)} />
       )}
       {row && <ZonaDePerigoDaOrganizacao displayName={row.display_name} />}
     </div>

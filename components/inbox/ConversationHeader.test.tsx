@@ -8,9 +8,9 @@ import type { ConversationWithContact } from "@/hooks/inbox/useConversationsReal
 /**
  * "Fechar" e "Arquivar" usavam `window.confirm()` — mesmo defeito documentado
  * em `app/app/tasks/_components/ListaDeTarefas.tsx`: bloqueado em iframe,
- * ignora o tema, não passa por `t()`. Agora usam o `AlertDialog` da casa
- * (docs/doctrine/destrutivo-pede-confirmacao.md): o botão só ABRE o diálogo,
- * a mutação só dispara no clique de DENTRO dele.
+ * ignora o tema, não passa por `t()`. Fechar usa o `AlertDialog` da casa;
+ * arquivar usa a janela temporizada com opções do CRM. Em ambos, o botão só
+ * abre a janela e a mutação depende da ação explícita ou do prazo configurado.
  */
 
 const closeMutate = vi.hoisted(() => vi.fn());
@@ -29,7 +29,14 @@ vi.mock("@/hooks/inbox/useReleaseConversation", () => ({
 vi.mock("@/hooks/inbox/useCloseConversation", () => ({
   useCloseConversation: () => ({ mutate: closeMutate, isPending: false }),
   useReopenConversation: () => ({ mutate: vi.fn(), isPending: false }),
-  useArchiveConversation: () => ({ mutate: arquivarMutate, isPending: false }),
+  useArchiveConversation: () => ({
+    mutate: arquivarMutate,
+    mutateAsync: (...args: unknown[]) => {
+      arquivarMutate(...args);
+      return Promise.resolve();
+    },
+    isPending: false,
+  }),
 }));
 vi.mock("@/hooks/inbox/useResumeAiAttendance", () => ({
   useResumeAiAttendance: () => ({ mutate: vi.fn(), isPending: false }),
@@ -132,7 +139,7 @@ describe("ConversationHeader — chamada de voz na Inbox", () => {
   });
 });
 
-describe("ConversationHeader — Fechar e Arquivar por AlertDialog", () => {
+describe("ConversationHeader — confirmação de Fechar e Arquivar", () => {
   it("Fechar pede confirmação e só encerra no clique de dentro do diálogo", async () => {
     const user = userEvent.setup();
     render(<ConversationHeader conversation={conversa("open")} />);
@@ -164,16 +171,16 @@ describe("ConversationHeader — Fechar e Arquivar por AlertDialog", () => {
 
     await user.click(screen.getByRole("button", { name: "Arquivar" }));
 
-    const dialogo = await screen.findByRole("alertdialog");
+    const dialogo = await screen.findByRole("dialog");
     expect(within(dialogo).getByText("Arquivar esta conversa?")).toBeTruthy();
     expect(
       within(dialogo).getByText(
-        "Arquivar encerra este atendimento e guarda a conversa no histórico. Se o cliente escrever de novo, ela volta.",
+        "Como esta conversa está aberta, arquivar também encerra o atendimento atual.",
       ),
     ).toBeTruthy();
     expect(arquivarMutate).not.toHaveBeenCalled();
 
-    await user.click(within(dialogo).getByRole("button", { name: "Arquivar" }));
+    await user.click(within(dialogo).getByRole("button", { name: "Arquivar agora" }));
     await waitFor(() => expect(arquivarMutate).toHaveBeenCalledTimes(1));
     expect(arquivarMutate).toHaveBeenCalledWith({
       conversation_id: "conv-1",
@@ -187,13 +194,28 @@ describe("ConversationHeader — Fechar e Arquivar por AlertDialog", () => {
 
     await user.click(screen.getByRole("button", { name: "Arquivar" }));
 
-    const dialogo = await screen.findByRole("alertdialog");
+    const dialogo = await screen.findByRole("dialog");
     expect(within(dialogo).getByText("Arquivar esta conversa?")).toBeTruthy();
     expect(
       screen.queryByText(
-        "Arquivar encerra este atendimento e guarda a conversa no histórico. Se o cliente escrever de novo, ela volta.",
+        "Como esta conversa está aberta, arquivar também encerra o atendimento atual.",
       ),
     ).toBeNull();
+  });
+
+  it("arquiva direto quando a organização desativa a janela", async () => {
+    const user = userEvent.setup();
+    render(
+      <ConversationHeader
+        conversation={conversa("open")}
+        archiveDialogConfig={{ enabled: false, duration_seconds: 3 }}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Arquivar" }));
+
+    await waitFor(() => expect(arquivarMutate).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
 

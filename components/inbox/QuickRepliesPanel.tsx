@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { respostaRapidaCorresponde } from "@/lib/inbox/busca-de-resposta-rapida";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
@@ -142,13 +143,7 @@ export function QuickRepliesPanel({
 
   const categories = categoryQuery.data ?? [];
   const visible = React.useMemo(() => {
-    const q = query.trim().toLocaleLowerCase();
-    let result = (templates.data ?? []).filter(
-      (tpl) =>
-        !q ||
-        tpl.title.toLocaleLowerCase().includes(q) ||
-        tpl.steps.some((step) => step.body.toLocaleLowerCase().includes(q)),
-    );
+    let result = (templates.data ?? []).filter((tpl) => respostaRapidaCorresponde(tpl, query));
     if (category) result = result.filter((tpl) => tpl.category_id === category);
     if (filter === "text")
       result = result.filter((tpl) => tpl.steps.every((step) => step.action_type === "text"));

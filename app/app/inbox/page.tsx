@@ -6,6 +6,7 @@ import { InboxLayout } from "@/components/inbox/InboxLayout";
 import { traduzir } from "@/lib/i18n/dicionario";
 import { createClient } from "@/lib/supabase/server";
 import { lerRascunho, type AvisoDeRascunho } from "@/lib/inbox/rascunho-sugerido";
+import { lerConfiguracaoDoArquivamento } from "@/lib/inbox/configuracao-do-arquivamento";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Inbox" };
@@ -39,6 +40,13 @@ export default async function InboxPage({
     );
   }
   const { id, rascunho } = await searchParams;
+  const db = await createClient();
+  const { data: empresa } = await db
+    .from("organizations")
+    .select("settings")
+    .eq("id", activeOrg.orgId)
+    .maybeSingle();
+  const archiveDialogConfig = lerConfiguracaoDoArquivamento(empresa?.settings);
   // ?rascunho= é a ponta da caixa de entrada da issue #1611: o texto mora no
   // servidor, e a URL só carrega o ID. Aqui a leitura acontece com a SESSÃO do
   // atendente (RLS), então um rascunho de outra organização vira
@@ -47,7 +55,6 @@ export default async function InboxPage({
   // aviso", e silenciar faria o atendente achar que o texto nunca existiu.
   let avisoDeRascunho: AvisoDeRascunho | null = null;
   if (rascunho && id) {
-    const db = await createClient();
     avisoDeRascunho = {
       conversationId: id,
       leitura: await lerRascunho(db, {
@@ -57,5 +64,11 @@ export default async function InboxPage({
       }),
     };
   }
-  return <InboxLayout initialSelectedId={id ?? null} rascunho={avisoDeRascunho} />;
+  return (
+    <InboxLayout
+      initialSelectedId={id ?? null}
+      rascunho={avisoDeRascunho}
+      archiveDialogConfig={archiveDialogConfig}
+    />
+  );
 }

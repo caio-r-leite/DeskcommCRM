@@ -71,6 +71,10 @@ import {
   alternarPainelDeRespostas,
   type EstadoDoPainelDeRespostas,
 } from "@/lib/inbox/estado-painel-respostas";
+import {
+  CONFIGURACAO_PADRAO_DO_ARQUIVAMENTO,
+  type ConfiguracaoDoArquivamento,
+} from "@/lib/inbox/configuracao-do-arquivamento";
 
 /**
  * QUAL COLUNA APARECE NO CELULAR — as duas saem da MESMA pergunta.
@@ -173,9 +177,14 @@ interface InboxLayoutProps {
   initialSelectedId?: string | null;
   /** Rascunho sugerido por integração (issue #1611) — `null` é o caso comum. */
   rascunho?: AvisoDeRascunho | null;
+  archiveDialogConfig?: ConfiguracaoDoArquivamento;
 }
 
-export function InboxLayout({ initialSelectedId = null, rascunho = null }: InboxLayoutProps = {}) {
+export function InboxLayout({
+  initialSelectedId = null,
+  rascunho = null,
+  archiveDialogConfig = CONFIGURACAO_PADRAO_DO_ARQUIVAMENTO,
+}: InboxLayoutProps = {}) {
   const t = useT();
   const { activeOrg, user } = useAuth();
   const supportReadonly = user.support?.access_mode === "support_readonly";
@@ -392,6 +401,19 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
     },
     [lote, selecao],
   );
+  const arquivarLote = useCallback(async () => {
+    const ids = Array.from(selecao.selecionados);
+    if (ids.length === 0) return;
+    await lote.mutateAsync({ ids, action: "archive" });
+    selecao.limpar();
+  }, [lote, selecao]);
+
+  const conversaUnicaDoLote = useMemo(() => {
+    if (selecao.quantidade !== 1) return null;
+    const id = selecao.selecionados.values().next().value as string | undefined;
+    if (!id) return null;
+    return (listQ.data?.pages.flatMap((page) => page.data) ?? []).find((item) => item.id === id) ?? null;
+  }, [listQ.data?.pages, selecao.quantidade, selecao.selecionados]);
 
   // A leitura da conversa aberta é do upstream e fica: sem ela o contador de
   // não-lidas nunca zera para quem abre a conversa.
@@ -690,7 +712,9 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
             quantidade={selecao.quantidade}
             pendente={lote.isPending}
             onFechar={() => rodarLote("close")}
-            onArquivar={() => rodarLote("archive")}
+            onArquivar={arquivarLote}
+            archiveDialogConfig={archiveDialogConfig}
+            contactIdParaUmaSelecao={conversaUnicaDoLote?.contacts?.id ?? null}
             onMarcarComoLida={() => rodarLote("mark-read")}
             onPausarIa={() => rodarLote("pause-ai")}
             onDevolverAoAutomatico={() => rodarLote("reactivate-bot")}
@@ -718,6 +742,7 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
             }
           />
         </div>
+      </div>
 
         {/*
         AS DUAS COLUNAS DECIDEM PELO MESMO DADO — `selectedId`, não o objeto.
@@ -781,6 +806,7 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
               <ConversationHeader
                 key={selectedConversation.id}
                 conversation={selectedConversation}
+                archiveDialogConfig={archiveDialogConfig}
                 onAbrirConversa={handleSelect}
                 onBuscar={() =>
                   buscaAberta

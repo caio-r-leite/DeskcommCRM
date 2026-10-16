@@ -12,7 +12,7 @@
  *    escolhe o atendente e devolve `(to_user_id, reason)` para quem monta o
  *    lote — sem destino escolhido, o confirmar fica desligado.
  */
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -41,13 +41,7 @@ function mao() {
 
 describe("BarraDeAcoesEmLote", () => {
   it("sem seleção, a barra não existe", () => {
-    render(
-      <BarraDeAcoesEmLote
-        quantidade={0}
-        pendente={false}
-        {...mao()}
-      />,
-    );
+    render(<BarraDeAcoesEmLote quantidade={0} pendente={false} {...mao()} />);
     expect(screen.queryByTestId("barra-de-acoes-em-lote")).toBeNull();
   });
 
@@ -81,6 +75,9 @@ describe("BarraDeAcoesEmLote", () => {
 
     await user.click(screen.getByRole("button", { name: "Mais ações" }));
     await user.click(screen.getByTestId("lote-arquivar"));
+    const dialogo = await screen.findByRole("dialog");
+    expect(within(dialogo).getByText("Arquivar conversas selecionadas (2)")).toBeTruthy();
+    await user.click(within(dialogo).getByRole("button", { name: "Arquivar agora" }));
     expect(h.onArquivar).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByRole("button", { name: "Mais ações" }));
@@ -90,6 +87,25 @@ describe("BarraDeAcoesEmLote", () => {
     await user.click(screen.getByRole("button", { name: "Mais ações" }));
     await user.click(screen.getByTestId("lote-devolver-ao-automatico"));
     expect(h.onDevolverAoAutomatico).toHaveBeenCalledTimes(1);
+  });
+
+  it("arquiva o lote direto quando a organização desativa a janela", async () => {
+    const user = userEvent.setup();
+    const h = mao();
+    render(
+      <BarraDeAcoesEmLote
+        quantidade={2}
+        pendente={false}
+        archiveDialogConfig={{ enabled: false, duration_seconds: 3 }}
+        {...h}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Mais ações" }));
+    await user.click(screen.getByTestId("lote-arquivar"));
+
+    expect(h.onArquivar).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("transferir em lote escolhe o destino e devolve (to_user_id, reason)", async () => {

@@ -1121,6 +1121,9 @@ export const AUDIT_ACTIONS = [
   // empresa (e religá-lo) ficaria sem rastro — e é ele que decide se alguma
   // regra consulta o modelo.
   "settings.automation_ai_decide_updated",
+  // Preferência da confirmação de arquivamento no Inbox. O metadata guarda só
+  // interruptor e duração — nenhum dado da conversa ou do contato.
+  "settings.archive_dialog_updated",
 
   // Planos de tarefa (#1752): a lista `settings.task_plans` mudou pela rota
   // `settings/task-plans` — mesma família de `campaign.settings_updated`.

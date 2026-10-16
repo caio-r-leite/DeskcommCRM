@@ -31,13 +31,19 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAssignableMembers } from "@/hooks/inbox/useAssignableMembers";
 import { useT } from "@/hooks/i18n/useT";
 import { ArrowRight, Archive, Check, Pause, Robot, X } from "@/lib/ui/icons";
+import { ArchiveConversationDialog } from "@/components/inbox/ArchiveConversationDialog";
+import type { ConfiguracaoDoArquivamento } from "@/lib/inbox/configuracao-do-arquivamento";
+import { CONFIGURACAO_PADRAO_DO_ARQUIVAMENTO } from "@/lib/inbox/configuracao-do-arquivamento";
 
 interface Props {
   /** Quantas conversas estão marcadas. Zero = a barra não existe. */
   quantidade: number;
   pendente: boolean;
   onFechar: () => void;
-  onArquivar: () => void;
+  onArquivar: () => void | Promise<void>;
+  archiveDialogConfig?: ConfiguracaoDoArquivamento;
+  /** Contato da conversa quando há exatamente uma selecionada. */
+  contactIdParaUmaSelecao?: string | null;
   onMarcarComoLida: () => void;
   onPausarIa: () => void;
   onDevolverAoAutomatico: () => void;
@@ -67,6 +73,8 @@ export function BarraDeAcoesEmLote({
   pendente,
   onFechar,
   onArquivar,
+  archiveDialogConfig = CONFIGURACAO_PADRAO_DO_ARQUIVAMENTO,
+  contactIdParaUmaSelecao,
   onMarcarComoLida,
   onPausarIa,
   onDevolverAoAutomatico,
@@ -77,6 +85,7 @@ export function BarraDeAcoesEmLote({
   const [transferirAberto, setTransferirAberto] = useState(false);
   const [destino, setDestino] = useState("");
   const [motivo, setMotivo] = useState("");
+  const [arquivamentoAberto, setArquivamentoAberto] = useState(false);
   const membros = useAssignableMembers(transferirAberto);
   const lista = membros.data ?? [];
 
@@ -91,6 +100,11 @@ export function BarraDeAcoesEmLote({
     setTransferirAberto(false);
     setDestino("");
     setMotivo("");
+  };
+
+  const iniciarArquivamento = () => {
+    if (archiveDialogConfig.enabled) setArquivamentoAberto(true);
+    else void onArquivar();
   };
 
   return (
@@ -131,10 +145,7 @@ export function BarraDeAcoesEmLote({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start">
           <DropdownMenuLabel>{t("Ações em lote")}</DropdownMenuLabel>
-          <DropdownMenuItem
-            onSelect={onArquivar}
-            data-testid="lote-arquivar"
-          >
+          <DropdownMenuItem onSelect={iniciarArquivamento} data-testid="lote-arquivar">
             <Archive size={14} className="mr-2" aria-hidden />
             {t("Arquivar")}
           </DropdownMenuItem>
@@ -188,7 +199,9 @@ export function BarraDeAcoesEmLote({
                 : `${t("Transferir")} ${quantidade} ${t("conversas selecionadas")}`}
             </DialogTitle>
             <DialogDescription>
-              {t("Cada conversa é transferida pelo mesmo caminho de sempre, com evento e auditoria próprios.")}
+              {t(
+                "Cada conversa é transferida pelo mesmo caminho de sempre, com evento e auditoria próprios.",
+              )}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -237,6 +250,19 @@ export function BarraDeAcoesEmLote({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {arquivamentoAberto && (
+        <ArchiveConversationDialog
+          open
+          config={archiveDialogConfig}
+          quantidade={quantidade}
+          contactId={quantidade === 1 ? contactIdParaUmaSelecao : null}
+          pending={pendente}
+          onCancel={() => setArquivamentoAberto(false)}
+          onArchive={async () => {
+            await onArquivar();
+          }}
+        />
+      )}
     </div>
   );
 }
