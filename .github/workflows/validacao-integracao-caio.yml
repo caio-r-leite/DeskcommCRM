@@ -1,4 +1,4 @@
-name: Validar build da integração
+name: Validar layout da Inbox
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   build:
-    if: "!contains(github.event.head_commit.message, '[e2e]') && !contains(github.event.head_commit.message, '[arm64]')"
+    if: "!contains(github.event.head_commit.message, '[inbox]')"
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -36,12 +36,13 @@ jobs:
         run: test -f .next/standalone/server.js && test -d .next/static
 
   navegador:
-    if: contains(github.event.head_commit.message, '[e2e]')
+    if: contains(github.event.head_commit.message, '[inbox]')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: 26be02dcb02f8c61bbe2d518ff09abb93f1254b8
           persist-credentials: false
 
       - uses: ./.github/actions/preparar-node
@@ -80,6 +81,11 @@ jobs:
           pnpm e2e:env
           grep -vE '^[[:space:]]*(#|$)' .env.e2e >> "$GITHUB_ENV"
 
+      - name: Verificar tipos do app e dos testes
+        run: pnpm typecheck
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+
       - name: Compilar com o ambiente de teste
         run: pnpm e2e:build
         env:
@@ -88,14 +94,21 @@ jobs:
       - name: Instalar o Chromium
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Testar respostas rápidas e criação de lead
+      - name: Testar calendário, menu e ações no card da Inbox
         run: >-
           pnpm exec playwright test --workers=1 --reporter=list
-          tests/e2e/respostas-rapidas-conteudos.spec.ts
-          tests/e2e/conversa-vira-lead.spec.ts
+          tests/e2e/inbox-busca-e-filtros-dizem-a-verdade.spec.ts --grep @layout
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: capturas-inbox-layout
+          path: test-results/**/*.png
+          if-no-files-found: ignore
+          retention-days: 7
 
   empacotar-arm64:
-    if: contains(github.event.head_commit.message, '[arm64]')
+    if: contains(github.event.head_commit.message, '[inbox]')
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 28
     strategy:
@@ -104,16 +117,12 @@ jobs:
         include:
           - servico: app
             dockerfile: Dockerfile
-          - servico: worker
-            dockerfile: Dockerfile.worker
-          - servico: scheduler
-            dockerfile: Dockerfile.scheduler
     env:
-      RELEASE_COMMIT: 888834d41f1f0358ff07736348676a6c0c7840f6
+      RELEASE_COMMIT: 26be02dcb02f8c61bbe2d518ff09abb93f1254b8
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 888834d41f1f0358ff07736348676a6c0c7840f6
+          ref: 26be02dcb02f8c61bbe2d518ff09abb93f1254b8
           persist-credentials: false
 
       - name: Construir imagem ARM64
