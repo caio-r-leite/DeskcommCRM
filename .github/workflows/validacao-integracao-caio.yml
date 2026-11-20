@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   build:
-    if: "!contains(github.event.head_commit.message, '[inbox]')"
+    if: "!contains(github.event.head_commit.message, '[inbox]') && !contains(github.event.head_commit.message, '[inbox-arm64]')"
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -42,7 +42,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 26be02dcb02f8c61bbe2d518ff09abb93f1254b8
+          ref: 0300d6ebf53866cf62a845a4aae5435f8b4716fa
           persist-credentials: false
 
       - uses: ./.github/actions/preparar-node
@@ -108,7 +108,7 @@ jobs:
           retention-days: 7
 
   empacotar-arm64:
-    if: contains(github.event.head_commit.message, '[inbox]')
+    if: contains(github.event.head_commit.message, '[inbox-arm64]')
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 28
     strategy:
@@ -118,11 +118,11 @@ jobs:
           - servico: app
             dockerfile: Dockerfile
     env:
-      RELEASE_COMMIT: 26be02dcb02f8c61bbe2d518ff09abb93f1254b8
+      RELEASE_COMMIT: 0300d6ebf53866cf62a845a4aae5435f8b4716fa
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 26be02dcb02f8c61bbe2d518ff09abb93f1254b8
+          ref: 0300d6ebf53866cf62a845a4aae5435f8b4716fa
           persist-credentials: false
 
       - name: Construir imagem ARM64
