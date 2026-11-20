@@ -295,38 +295,59 @@ test("número e Não lidos sobrevivem à recarga e permanecem na sua organizaç�
   }
 });
 
-test("Inbox @layout: calendário aplica todos os períodos e usa a última mensagem", async ({ page }, info) => {
+async function contextoDeLayout() {
   const { createClient } = await import("@supabase/supabase-js");
   const { credenciaisSupabaseDeTeste } = await import("../../scripts/lib/env-de-teste");
   const c = credenciaisSupabaseDeTeste();
   expect(["127.0.0.1", "localhost"]).toContain(new URL(c.url).hostname);
   const db = createClient(c.url, c.serviceRole, { auth: { persistSession: false } });
   const { org_id: org } = lerCreds() as ReturnType<typeof lerCreds> & { org_id: string };
-  const canal = await db.from("channel_sessions").select("id").eq("organization_id", org).limit(1).single();
+  const canal = await db.from("channel_sessions").insert({
+    organization_id: org,
+    display_name: "Canal de teste da Inbox",
+    waha_session_name: `layout-${crypto.randomUUID()}`,
+    status: "WORKING",
+    webhook_secret_encrypted: "\\x00",
+  }).select("id").single();
   expect(canal.error).toBeNull();
-  const prefixo = `Calendario ${Date.now().toString(36)}`;
+  const canalId = canal.data!.id;
   const contatos: string[] = [];
+  const conversas: string[] = [];
+
+  async function inserirConversa(nome: string, data: string) {
+    const contato = await db.from("contacts")
+      .insert({ organization_id: org, display_name: nome, phone_number: `+5511${String(Date.now()).slice(-9)}` })
+      .select("id").single();
+    expect(contato.error).toBeNull();
+    contatos.push(contato.data!.id);
+    const conversa = await db.from("conversations").insert({
+      organization_id: org, contact_id: contato.data!.id, channel_session_id: canalId,
+      status: "open", last_message_at: data, last_inbound_at: "2024-01-01T13:00:00Z",
+      last_message_preview: nome, unread_count_for_assignee: 0,
+    }).select("id").single();
+    expect(conversa.error).toBeNull();
+    conversas.push(conversa.data!.id);
+    return conversa.data!.id as string;
+  }
+
+  async function limpar() {
+    if (conversas.length) await db.from("conversations").delete().in("id", conversas).eq("organization_id", org);
+    if (contatos.length) await db.from("contacts").delete().in("id", contatos).eq("organization_id", org);
+    await db.from("channel_sessions").delete().eq("id", canalId).eq("organization_id", org);
+  }
+  return { inserirConversa, limpar };
+}
+
+test("Inbox @layout: calendário aplica todos os períodos e usa a última mensagem", async ({ page }, info) => {
+  test.setTimeout(120_000);
+  const { inserirConversa, limpar } = await contextoDeLayout();
+  const prefixo = `Calendario ${Date.now().toString(36)}`;
   const conversas: string[] = [];
   const datas = ["2028-03-03", "2028-03-02", "2028-02-29", "2028-02-05", "2028-01-09"];
 
   try {
     for (const [index, dia] of datas.entries()) {
-      const contato = await db.from("contacts")
-        .insert({ organization_id: org, display_name: `${prefixo} ${index}`, phone_number: `+55119${String(Date.now()).slice(-7)}${index}` })
-        .select("id").single();
-      expect(contato.error).toBeNull();
-      contatos.push(contato.data!.id);
-      const conversa = await db.from("conversations").insert({
-        organization_id: org,
-        contact_id: contato.data!.id,
-        channel_session_id: canal.data!.id,
-        status: "open",
-        last_message_at: `${dia}T13:00:00Z`,
-        last_inbound_at: "2028-01-09T13:00:00Z",
-        last_message_preview: prefixo,
-      }).select("id").single();
-      expect(conversa.error).toBeNull();
-      conversas.push(conversa.data!.id);
+      conversas.push(await inserirConversa(`${prefixo} ${index}`, `${dia}T13:00:00Z`));
     }
 
     await page.clock.setFixedTime(new Date("2028-03-03T13:00:00Z"));
@@ -395,55 +416,55 @@ test("Inbox @layout: calendário aplica todos os períodos e usa a última mensa
     await expect(calendario).toHaveAttribute("aria-pressed", "false");
     await conferir([0, 1, 2, 3, 4]);
   } finally {
-    if (conversas.length) await db.from("conversations").delete().in("id", conversas).eq("organization_id", org);
-    if (contatos.length) await db.from("contacts").delete().in("id", contatos).eq("organization_id", org);
+    await limpar();
   }
 });
 
 test("Inbox @layout: iniciar pelo Atendimento e agir no card sem selecionar em lote", async ({ page }, info) => {
-  const criar = await page.request.post("/api/v1/conversations/open-with-contact", {
-    data: { phone_number: `+5511${Date.now().toString().slice(-9)}`, name: "Cartao Inbox E2E" },
-  });
-  expect(criar.ok(), await criar.text()).toBe(true);
-  const { data } = await criar.json();
-  const id = data.conversation_id as string;
-  await page.goto(`/app/inbox?filter=all&id=${id}`);
-  await page.getByLabel(CAMPO_DE_BUSCA).fill("Cartao Inbox E2E");
+  test.setTimeout(120_000);
+  const { inserirConversa, limpar } = await contextoDeLayout();
+  try {
+    const id = await inserirConversa("Cartao Inbox E2E", new Date().toISOString());
+    await page.goto(`/app/inbox?filter=all&id=${id}`);
+    await page.getByLabel(CAMPO_DE_BUSCA).fill("Cartao Inbox E2E");
 
-  const linha = page.locator(`[data-conversation-id="${id}"]`).locator("..");
-  const marcarLida = linha.getByRole("button", { name: "Marcar como lida", exact: true });
-  const marcarNaoLida = linha.getByRole("button", { name: "Marcar como não lida", exact: true });
-  await marcarNaoLida.click();
-  await expect(marcarLida).toBeVisible();
-  // O timer de leitura automática da conversa aberta não deve desfazer o gesto.
-  await page.waitForTimeout(1800);
-  await expect(marcarLida).toBeVisible();
-  expect(new URL(page.url()).searchParams.get("id")).toBe(id);
-  await marcarLida.click();
-  await expect(marcarNaoLida).toBeVisible();
+    const linha = page.locator(`[data-conversation-id="${id}"]`).locator("..");
+    const marcarLida = linha.getByRole("button", { name: "Marcar como lida", exact: true });
+    const marcarNaoLida = linha.getByRole("button", { name: "Marcar como não lida", exact: true });
+    await marcarNaoLida.click();
+    await expect(marcarLida).toBeVisible();
+    // O timer de leitura automática da conversa aberta não deve desfazer o gesto.
+    await page.waitForTimeout(1800);
+    await expect(marcarLida).toBeVisible();
+    expect(new URL(page.url()).searchParams.get("id")).toBe(id);
+    await marcarLida.click();
+    await expect(marcarNaoLida).toBeVisible();
 
-  const expandir = linha.getByRole("button", { name: "Mais ações da conversa" });
-  await expandir.click();
-  for (const name of ["Fechar", "Arquivar", "Pausar IA", "Devolver ao automático", "Transferir para…", "Usar como exemplo para a IA"]) {
-    await expect(page.getByRole("menuitem", { name, exact: true })).toBeVisible();
+    const expandir = linha.getByRole("button", { name: "Mais ações da conversa" });
+    await expandir.click();
+    for (const name of ["Fechar", "Arquivar", "Pausar IA", "Devolver ao automático", "Transferir para…", "Usar como exemplo para a IA"]) {
+      await expect(page.getByRole("menuitem", { name, exact: true })).toBeVisible();
+    }
+    await page.screenshot({ path: info.outputPath("acoes-da-conversa.png") });
+    await page.getByRole("menuitem", { name: "Transferir para…" }).click();
+    await expect(page.getByRole("dialog", { name: "Transferir a conversa selecionada" })).toBeVisible();
+    await page.getByRole("button", { name: "Cancelar", exact: true }).click();
+
+    await linha.getByRole("button", { name: "Arquivar conversa" }).click();
+    await expect(page.getByRole("button", { name: "Cancelar arquivamento" })).toBeVisible();
+    await page.getByRole("button", { name: "Cancelar arquivamento" }).click();
+    await expect(linha).toBeVisible();
+
+    const iniciar = page.getByRole("link", { name: "Iniciar conversa", exact: true });
+    await expect(page.getByRole("button", { name: "Iniciar conversa", exact: true })).toHaveCount(0);
+    await iniciar.click();
+    await expect(page.getByRole("dialog", { name: "Nova conversa" })).toBeVisible();
+    await page.screenshot({ path: info.outputPath("iniciar-conversa.png") });
+    await page.getByRole("button", { name: "Cancelar", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Nova conversa" })).toHaveCount(0);
+    await iniciar.click();
+    await expect(page.getByRole("dialog", { name: "Nova conversa" })).toBeVisible();
+  } finally {
+    await limpar();
   }
-  await page.screenshot({ path: info.outputPath("acoes-da-conversa.png") });
-  await page.getByRole("menuitem", { name: "Transferir para…" }).click();
-  await expect(page.getByRole("dialog", { name: "Transferir a conversa selecionada" })).toBeVisible();
-  await page.getByRole("button", { name: "Cancelar", exact: true }).click();
-
-  await linha.getByRole("button", { name: "Arquivar conversa" }).click();
-  await expect(page.getByRole("button", { name: "Cancelar arquivamento" })).toBeVisible();
-  await page.getByRole("button", { name: "Cancelar arquivamento" }).click();
-  await expect(linha).toBeVisible();
-
-  const iniciar = page.getByRole("link", { name: "Iniciar conversa", exact: true });
-  await expect(page.getByRole("button", { name: "Iniciar conversa", exact: true })).toHaveCount(0);
-  await iniciar.click();
-  await expect(page.getByRole("dialog", { name: "Nova conversa" })).toBeVisible();
-  await page.screenshot({ path: info.outputPath("iniciar-conversa.png") });
-  await page.getByRole("button", { name: "Cancelar", exact: true }).click();
-  await expect(page.getByRole("dialog", { name: "Nova conversa" })).toHaveCount(0);
-  await iniciar.click();
-  await expect(page.getByRole("dialog", { name: "Nova conversa" })).toBeVisible();
 });
