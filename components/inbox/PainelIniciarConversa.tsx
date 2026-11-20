@@ -67,7 +67,7 @@ import { apiClient } from "@/lib/api/client";
 import { normalizePhoneBR, phoneForDisplay, samePhone } from "@/lib/channels/phone-variants";
 import { rotuloParaAEquipe } from "@/lib/contacts/rotulo-do-contato";
 import { assumirConversaAoAbrir } from "@/lib/inbox/assumir-conversa-ao-abrir";
-import { ChatCircle, UserCircle, Users } from "@/lib/ui/icons";
+import { UserCircle, Users } from "@/lib/ui/icons";
 import { useAuth, usePermission } from "@/hooks/auth/AuthProvider";
 import { useContactList } from "@/hooks/contacts/useContactList";
 import { useT } from "@/hooks/i18n/useT";
@@ -368,34 +368,9 @@ export function IniciarConversaDialog({
   );
 }
 
-/**
- * O botão do topo da lista do Inbox, com o painel atrás dele.
- *
- * A guarda de papel é a mesma do fluxo equivalente: `inbox.claim` é o posto
- * `agent`, que é o que a rota exige para abrir conversa em nome da organização.
- * Quem não pode atender não vê um botão que o servidor vai recusar.
- */
-export function BotaoIniciarConversa() {
-  const t = useT();
+export function IniciarConversaPeloMenu({ onFechar }: { onFechar: () => void }) {
   const podeIniciar = usePermission("inbox.claim");
-  const [aberto, setAberto] = useState(false);
-
   if (!podeIniciar) return null;
 
-  return (
-    <>
-      <div className="px-3 pt-3">
-        <Button
-          type="button"
-          variant="outline"
-          className="w-full justify-center gap-2"
-          onClick={() => setAberto(true)}
-        >
-          <ChatCircle size={16} weight="regular" aria-hidden />
-          {t("Iniciar conversa")}
-        </Button>
-      </div>
-      <IniciarConversaDialog open={aberto} onOpenChange={setAberto} />
-    </>
-  );
+  return <IniciarConversaDialog open onOpenChange={(open) => { if (!open) onFechar(); }} />;
 }

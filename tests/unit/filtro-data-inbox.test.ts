@@ -11,6 +11,13 @@ import {
 import { listConversationsQuerySchema } from "@/lib/schemas";
 
 describe("filtro de data da Inbox", () => {
+  it("hoje cobre só a data local atual", () => {
+    expect(periodoRapido("hoje", new Date(2028, 1, 29, 15))).toEqual({
+      dataDe: "2028-02-29",
+      dataAte: "2028-02-29",
+    });
+  });
+
   it("ontem cobre somente o dia anterior", () => {
     expect(periodoRapido("ontem", new Date(2026, 9, 14, 15))).toEqual({
       dataDe: "2026-10-13",
@@ -41,6 +48,7 @@ describe("filtro de data da Inbox", () => {
     expect(new Date(inicioLocalEmIso(campo)!).getTime()).toBe(
       new Date(2026, 9, 14, 0, 0, 0, 0).getTime(),
     );
+    expect(fimLocalEmIso(campo)).toMatch(/\.999999Z$/);
     expect(new Date(fimLocalEmIso(campo)!).getTime()).toBe(
       new Date(2026, 9, 14, 23, 59, 59, 999).getTime(),
     );
@@ -56,7 +64,7 @@ describe("filtro de data da Inbox", () => {
     expect(
       listConversationsQuerySchema.parse({
         ultima_mensagem_de: "2026-10-01T03:00:00.000Z",
-        ultima_mensagem_ate: "2026-11-01T02:59:59.999Z",
+        ultima_mensagem_ate: "2026-11-01T02:59:59.999999Z",
         ordem: "mais_antigas",
       }),
     ).toMatchObject({ ordem: "mais_antigas" });

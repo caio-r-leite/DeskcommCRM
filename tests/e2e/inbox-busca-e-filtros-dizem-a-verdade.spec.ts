@@ -294,3 +294,156 @@ test("número e Não lidos sobrevivem à recarga e permanecem na sua organizaç�
     await esperarCacheCurtoVencer();
   }
 });
+
+test("Inbox @layout: calendário aplica todos os períodos e usa a última mensagem", async ({ page }, info) => {
+  const { createClient } = await import("@supabase/supabase-js");
+  const { credenciaisSupabaseDeTeste } = await import("../../scripts/lib/env-de-teste");
+  const c = credenciaisSupabaseDeTeste();
+  expect(["127.0.0.1", "localhost"]).toContain(new URL(c.url).hostname);
+  const db = createClient(c.url, c.serviceRole, { auth: { persistSession: false } });
+  const { org_id: org } = lerCreds() as ReturnType<typeof lerCreds> & { org_id: string };
+  const canal = await db.from("channel_sessions").select("id").eq("organization_id", org).limit(1).single();
+  expect(canal.error).toBeNull();
+  const prefixo = `Calendario ${Date.now().toString(36)}`;
+  const contatos: string[] = [];
+  const conversas: string[] = [];
+  const datas = ["2028-03-03", "2028-03-02", "2028-02-29", "2028-02-05", "2028-01-09"];
+
+  try {
+    for (const [index, dia] of datas.entries()) {
+      const contato = await db.from("contacts")
+        .insert({ organization_id: org, display_name: `${prefixo} ${index}`, phone_number: `+55119${String(Date.now()).slice(-7)}${index}` })
+        .select("id").single();
+      expect(contato.error).toBeNull();
+      contatos.push(contato.data!.id);
+      const conversa = await db.from("conversations").insert({
+        organization_id: org,
+        contact_id: contato.data!.id,
+        channel_session_id: canal.data!.id,
+        status: "open",
+        last_message_at: `${dia}T13:00:00Z`,
+        last_inbound_at: "2028-01-09T13:00:00Z",
+        last_message_preview: prefixo,
+      }).select("id").single();
+      expect(conversa.error).toBeNull();
+      conversas.push(conversa.data!.id);
+    }
+
+    await page.clock.setFixedTime(new Date("2028-03-03T13:00:00Z"));
+    await page.getByRole("tab", { name: /^Todas/i }).click();
+    await page.getByLabel(CAMPO_DE_BUSCA).fill(prefixo);
+
+    async function conferir(indices: number[]) {
+      for (const [index, id] of conversas.entries()) {
+        await expect(page.locator(`[data-conversation-id="${id}"]`)).toHaveCount(indices.includes(index) ? 1 : 0);
+      }
+    }
+
+    const calendario = page.getByRole("button", { name: "Filtrar e ordenar por data" });
+    const inicio = page.getByLabel("A partir de", { exact: true });
+    const fim = page.getByLabel("Até", { exact: true });
+    const aplicar = page.getByRole("button", { name: "Aplicar filtro de data" });
+
+    await conferir([0, 1, 2, 3, 4]);
+    const rapidos: [string, number[]][] = [
+      ["Hoje", [0]], ["Ontem", [1]], ["Última semana", [0, 1, 2]], ["Último mês", [0, 1, 2, 3]],
+    ];
+    for (const [rotulo, esperadas] of rapidos) {
+      await calendario.click();
+      await page.getByRole("button", { name: rotulo, exact: true }).click();
+      await expect(calendario).toHaveAttribute("aria-pressed", "true");
+      await conferir(esperadas);
+    }
+
+    await calendario.click();
+    await inicio.fill("2028-03-03");
+    await fim.fill("2028-02-29");
+    await expect(page.getByText("A data inicial deve ser anterior à data final.")).toBeVisible();
+    await expect(aplicar).toBeDisabled();
+    await conferir([0, 1, 2, 3]);
+
+    await inicio.fill("2028-02-29");
+    await fim.fill("2028-03-02");
+    await page.screenshot({ path: info.outputPath("calendario-inbox.png") });
+    await aplicar.click();
+    await conferir([1, 2]);
+
+    await calendario.click();
+    await fim.fill("");
+    await aplicar.click();
+    await conferir([0, 1, 2]);
+
+    await calendario.click();
+    await inicio.fill("");
+    await fim.fill("2028-02-05");
+    await aplicar.click();
+    await conferir([3, 4]);
+
+    await calendario.click();
+    await page.getByLabel("Mês específico").fill("2028-02");
+    await aplicar.click();
+    await conferir([2, 3]);
+
+    await calendario.click();
+    await page.getByRole("button", { name: "Mais antigas", exact: true }).click();
+    const linhaDoMes = page.locator(`[data-conversation-id="${conversas[2]}"], [data-conversation-id="${conversas[3]}"]`);
+    await expect(linhaDoMes.first()).toHaveAttribute("data-conversation-id", conversas[3]!);
+    await page.getByRole("button", { name: "Mais recentes", exact: true }).click();
+    await expect(linhaDoMes.first()).toHaveAttribute("data-conversation-id", conversas[2]!);
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Limpar filtro de data" }).click();
+    await expect(calendario).toHaveAttribute("aria-pressed", "false");
+    await conferir([0, 1, 2, 3, 4]);
+  } finally {
+    if (conversas.length) await db.from("conversations").delete().in("id", conversas).eq("organization_id", org);
+    if (contatos.length) await db.from("contacts").delete().in("id", contatos).eq("organization_id", org);
+  }
+});
+
+test("Inbox @layout: iniciar pelo Atendimento e agir no card sem selecionar em lote", async ({ page }, info) => {
+  const criar = await page.request.post("/api/v1/conversations/open-with-contact", {
+    data: { phone_number: `+5511${Date.now().toString().slice(-9)}`, name: "Cartao Inbox E2E" },
+  });
+  expect(criar.ok(), await criar.text()).toBe(true);
+  const { data } = await criar.json();
+  const id = data.conversation_id as string;
+  await page.goto(`/app/inbox?filter=all&id=${id}`);
+  await page.getByLabel(CAMPO_DE_BUSCA).fill("Cartao Inbox E2E");
+
+  const linha = page.locator(`[data-conversation-id="${id}"]`).locator("..");
+  const marcarLida = linha.getByRole("button", { name: "Marcar como lida", exact: true });
+  const marcarNaoLida = linha.getByRole("button", { name: "Marcar como não lida", exact: true });
+  await marcarNaoLida.click();
+  await expect(marcarLida).toBeVisible();
+  // O timer de leitura automática da conversa aberta não deve desfazer o gesto.
+  await page.waitForTimeout(1800);
+  await expect(marcarLida).toBeVisible();
+  expect(new URL(page.url()).searchParams.get("id")).toBe(id);
+  await marcarLida.click();
+  await expect(marcarNaoLida).toBeVisible();
+
+  const expandir = linha.getByRole("button", { name: "Mais ações da conversa" });
+  await expandir.click();
+  for (const name of ["Fechar", "Arquivar", "Pausar IA", "Devolver ao automático", "Transferir para…", "Usar como exemplo para a IA"]) {
+    await expect(page.getByRole("menuitem", { name, exact: true })).toBeVisible();
+  }
+  await page.screenshot({ path: info.outputPath("acoes-da-conversa.png") });
+  await page.getByRole("menuitem", { name: "Transferir para…" }).click();
+  await expect(page.getByRole("dialog", { name: "Transferir a conversa selecionada" })).toBeVisible();
+  await page.getByRole("button", { name: "Cancelar", exact: true }).click();
+
+  await linha.getByRole("button", { name: "Arquivar conversa" }).click();
+  await expect(page.getByRole("button", { name: "Cancelar arquivamento" })).toBeVisible();
+  await page.getByRole("button", { name: "Cancelar arquivamento" }).click();
+  await expect(linha).toBeVisible();
+
+  const iniciar = page.getByRole("link", { name: "Iniciar conversa", exact: true });
+  await expect(page.getByRole("button", { name: "Iniciar conversa", exact: true })).toHaveCount(0);
+  await iniciar.click();
+  await expect(page.getByRole("dialog", { name: "Nova conversa" })).toBeVisible();
+  await page.screenshot({ path: info.outputPath("iniciar-conversa.png") });
+  await page.getByRole("button", { name: "Cancelar", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Nova conversa" })).toHaveCount(0);
+  await iniciar.click();
+  await expect(page.getByRole("dialog", { name: "Nova conversa" })).toBeVisible();
+});

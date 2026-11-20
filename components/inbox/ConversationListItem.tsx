@@ -19,6 +19,8 @@ import {
   STATUS_ENCERRADOS,
 } from "@/lib/inbox/comando-da-conversa";
 import { cn } from "@/lib/utils";
+import type { AcaoEmLote } from "@/hooks/inbox/useBulkConversations";
+import { AcoesDaConversaNaLista } from "./AcoesDaConversaNaLista";
 import type { ConversationWithContact } from "@/hooks/inbox/useConversationsRealtime";
 import { rotuloParaAEquipe } from "@/lib/contacts/rotulo-do-contato";
 import { phoneForDisplay } from "@/lib/channels/phone-variants";
@@ -94,6 +96,8 @@ interface Props {
    * QueryClient set". Quem faz o `POST .../usable-for-rag` é a lista.
    */
   onAlternarExemplo?: (id: string, enabled: boolean) => void;
+  onAcao?: (acao: AcaoEmLote) => void;
+  acaoPendente?: boolean;
   /**
    * Esta conversa tem uma menção PENDENTE para quem está olhando a lista
    * (#2372). Vem da lista (uma marca só, compartilhada) e não de hook por
@@ -170,6 +174,8 @@ export function ConversationListItem({
   selecionado = false,
   onAlternarSelecao,
   onAlternarExemplo,
+  onAcao,
+  acaoPendente = false,
   mencionado = false,
 }: Props) {
   const localeDaData = useLocaleDeData();
@@ -193,27 +199,7 @@ export function ConversationListItem({
   const preview = conversation.last_message_preview?.trim() || t("Sem mensagens");
   const truncated = preview.length > 60 ? `${preview.slice(0, 60)}…` : preview;
   const naFila = queuePosition !== undefined;
-  /**
-   * A HORA DO CANTO RESPONDE À MESMA PERGUNTA QUE ORDENA A LISTA.
-   *
-   * Na Fila a lista sai por TEMPO DE ESPERA (`ORDEM_DA_ESPERA`: `awaiting_since`
-   * crescente — a mensagem mais antiga sem resposta, #990), mas a hora do canto era
-   * sempre a da última mensagem de QUALQUER lado. Bastava o atendente responder para o número daquela linha pular para
-   * agora sem que a linha saísse do lugar: lida de cima para baixo, a coluna de
-   * horas saía fora de ordem (#464 — "a lista parece aleatória") embaixo de uma
-   * lista que estava certa.
-   *
-   * Fora da Fila a ordem é por atividade recente, e aí a última mensagem de
-   * qualquer lado É a resposta certa — a régua do relógio segue a régua da lista.
-   *
-   * A origem é a MESMA da pílula "Aguardando há…" (`waitingLabel`), inclusive no
-   * fallback: duas respostas para o mesmo "desde quando?" na mesma linha, a 40px
-   * de distância, seriam a próxima divergência.
-   */
-  const horaDaOrdem = naFila
-    ? esperaDaConversa(conversation)
-    : conversation.last_message_at;
-  const time = relativeTime(horaDaOrdem, localeDaData);
+  const time = relativeTime(conversation.last_message_at, localeDaData);
   const unread = conversation.unread_count_for_assignee ?? 0;
 
 
@@ -270,18 +256,7 @@ export function ConversationListItem({
   const canal = conversation.channel_sessions ?? null;
   const rotuloCanal = rotuloDoCanalDaConversa(canal, t);
 
-  /**
-   * A CONVERSA MARCADA COMO EXEMPLO PARA O AGENTE (#3006).
-   *
-   * `usable_for_rag` é a coluna que a rota `usable-for-rag` liga; quem a traz
-   * para cá é o `SELECT_COLS` da lista. Os dois rótulos são literais `t()`
-   * separados — a cerca de espanhol cobra chave por chave, e uma escolha
-   * ternária dentro do `t()` ficaria invisível para ela.
-   */
   const exemploMarcado = Boolean(conversation.usable_for_rag);
-  const rotuloExemplo = exemploMarcado
-    ? t("Deixar de usar como exemplo")
-    : t("Usar como exemplo para a IA");
 
   const temSelos =
     visibleTags.length > 0 ||
@@ -437,11 +412,7 @@ export function ConversationListItem({
           </span>
           <span
             className="shrink-0 text-[11px] tabular-nums text-text-muted"
-            // O mesmo lugar da tela mostra duas coisas diferentes conforme a aba:
-            // na Fila é "desde quando o cliente ESPERA" (a mensagem mais antiga sem
-            // resposta — #990), nas outras é "há quanto tempo a conversa mexeu". O
-            // rótulo existe só onde a leitura muda.
-            title={naFila ? t("Desde quando o cliente espera resposta") : undefined}
+            title={t("Data da última mensagem")}
           >
             {time}
           </span>
@@ -521,42 +492,17 @@ export function ConversationListItem({
         )}
       </div>
       </button>
-      {/*
-        O CONTROLE DE "EXEMPLO PARA A IA" (#3006) fica FORA do botão da linha,
-        como a caixa de seleção logo acima e pelo mesmo motivo: controle
-        interativo dentro de `<button>` é HTML inválido, e marcar não pode abrir
-        a conversa. O gesto de marcar é separado do gesto de abrir.
-
-        Fica sempre visível, e não só no hover: o defeito que esta issue
-        conserta é justamente um recurso que ninguém achava. Um ícone que só
-        aparece sob o cursor continuaria escondido no celular, onde não há
-        hover — e o alvo de toque é maior do que o desenho sugere.
-
-        Desmarcado usa `text-text-muted`, não `text-text-subtle`: é componente
-        gráfico e precisa de 3:1 contra o fundo da linha. Medido na prova de
-        tela, subtle dava 2,81:1 no escuro (#605e54 sobre #161510). Muted, no
-        pior fundo de cada tema (linha selecionada, `bg-accent-soft`): 5,74:1 no
-        claro (#5d594f sobre #e4ebe0) e 4,23:1 no escuro (#8e8b7f sobre #272b20).
-      */}
-      {onAlternarExemplo && (
-        <button
-          type="button"
-          data-testid={`exemplo-ia-${conversation.id}`}
-          aria-pressed={exemploMarcado}
-          aria-label={rotuloExemplo}
-          title={rotuloExemplo}
-          onClick={() => onAlternarExemplo(conversation.id, !exemploMarcado)}
-          className={cn(
-            "mr-1 mt-2.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm transition-colors",
-            "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent",
-            exemploMarcado
-              ? "text-accent hover:bg-accent-soft"
-              : "text-text-muted hover:bg-surface-elevated hover:text-text",
-          )}
-        >
-          <Sparkle size={14} weight={exemploMarcado ? "fill" : "regular"} aria-hidden />
-        </button>
-      )}
+      <AcoesDaConversaNaLista
+        conversationId={conversation.id}
+        status={conversation.status}
+        naoLida={unread > 0}
+        exemploMarcado={exemploMarcado}
+        pendente={acaoPendente}
+        onAcao={onAcao}
+        onAlternarExemplo={
+          onAlternarExemplo ? () => onAlternarExemplo(conversation.id, !exemploMarcado) : undefined
+        }
+      />
     </div>
   );
 }

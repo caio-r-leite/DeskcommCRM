@@ -59,7 +59,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 import type { ChannelSession } from "@/hooks/channels/useChannelSessions";
-import { BotaoIniciarConversa } from "@/components/inbox/PainelIniciarConversa";
+import { IniciarConversaPeloMenu } from "@/components/inbox/PainelIniciarConversa";
 import { ApiError } from "@/lib/api/types";
 
 const fetchMock = vi.fn();
@@ -117,7 +117,7 @@ function montar() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <BotaoIniciarConversa />
+      <IniciarConversaPeloMenu onFechar={() => {}} />
     </QueryClientProvider>,
   );
 }
@@ -125,7 +125,6 @@ function montar() {
 /** Abre o painel e digita o telefone — o começo de todo caso. */
 async function abrirComTelefone(telefone: string) {
   montar();
-  fireEvent.click(screen.getByRole("button", { name: "Iniciar conversa" }));
   const campo = await screen.findByLabelText("Para quem");
   fireEvent.change(campo, { target: { value: telefone } });
   return campo;
@@ -326,12 +325,12 @@ describe("Painel Iniciar conversa no Inbox (#2813)", () => {
     expect(gatilho).toHaveTextContent("Usar modelo de mensagem");
   });
 
-  it("quem não pode atender não vê o botão", () => {
+  it("quem não pode atender não abre o painel", () => {
     podeMock.mockReturnValue(false);
     lerCanaisE([], []);
     montar();
 
-    expect(screen.queryByRole("button", { name: "Iniciar conversa" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Nova conversa" })).toBeNull();
   });
 
   it("exibe o nome da agenda do celular (address_book_name) nos resultados da busca de contatos", async () => {
@@ -350,7 +349,6 @@ describe("Painel Iniciar conversa no Inbox (#2813)", () => {
     );
 
     montar();
-    fireEvent.click(screen.getByRole("button", { name: "Iniciar conversa" }));
 
     const campo = await screen.findByPlaceholderText("Telefone ou nome do contato");
     fireEvent.change(campo, { target: { value: "Ana Souza" } });

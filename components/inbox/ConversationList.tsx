@@ -11,6 +11,7 @@ import { useConversasComMencao } from "@/hooks/inbox/useConversasComMencao";
 import { desmarcarConversaMencionada } from "@/lib/notifications/mencao-na-lista";
 
 import { useAutomaticoAtivo } from "@/hooks/ai/useAutomaticoAtivo";
+import type { AcaoEmLote } from "@/hooks/inbox/useBulkConversations";
 import { useMarcarComoExemplo } from "@/hooks/inbox/useMarcarComoExemplo";
 
 import { ConversationListItem } from "./ConversationListItem";
@@ -52,6 +53,8 @@ interface Props {
    * controle: o leitor veria um botão que só devolve 403.
    */
   podeMarcarExemplo?: boolean;
+  onAcaoDaConversa?: (conversa: ConversationWithContact, acao: AcaoEmLote) => void;
+  acaoPendente?: boolean;
 }
 
 export function ConversationList({
@@ -65,6 +68,8 @@ export function ConversationList({
   onAlternarSelecao,
   onSelecionarTodosVisiveis,
   podeMarcarExemplo = false,
+  onAcaoDaConversa,
+  acaoPendente,
 }: Props) {
   const t = useT();
   /**
@@ -333,6 +338,8 @@ export function ConversationList({
             selecionado={selecionados?.has(c.id)}
             onAlternarSelecao={onAlternarSelecao}
             onAlternarExemplo={podeMarcarExemplo ? alternarExemplo : undefined}
+            onAcao={onAcaoDaConversa ? (acao) => onAcaoDaConversa(c, acao) : undefined}
+            acaoPendente={acaoPendente}
           />
         ))}
         {q.hasNextPage && (

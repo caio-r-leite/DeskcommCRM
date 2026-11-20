@@ -306,6 +306,10 @@ export const bulkConversationActionSchema = z.discriminatedUnion("action", [
     ids: z.array(z.string().uuid()).min(1),
   }),
   z.object({
+    action: z.literal("mark-unread"),
+    ids: z.array(z.string().uuid()).min(1),
+  }),
+  z.object({
     action: z.literal("pause-ai"),
     ids: z.array(z.string().uuid()).min(1),
   }),

@@ -788,14 +788,24 @@ export async function markConversationReadHandler(
   supabase: SB,
   ctx: HandlerCtx,
   conversationId: string,
+  lida = true,
 ): Promise<Conversation> {
-  const { data, error } = await supabase
+  // Marcar como não lida deve preservar a contagem se outra mensagem chegou.
+  const update = supabase
     .from("conversations")
-    .update({ unread_count_for_assignee: 0 })
+    .update({ unread_count_for_assignee: lida ? 0 : 1 })
     .eq("id", conversationId)
-    .eq("organization_id", ctx.organization_id)
-    .select(SELECT_COLS)
-    .maybeSingle();
+    .eq("organization_id", ctx.organization_id);
+  if (!lida) update.eq("unread_count_for_assignee", 0);
+  const resultado = await update.select(SELECT_COLS).maybeSingle();
+  const { data, error } = !lida && !resultado.error && !resultado.data
+    ? await supabase
+        .from("conversations")
+        .select(SELECT_COLS)
+        .eq("id", conversationId)
+        .eq("organization_id", ctx.organization_id)
+        .maybeSingle()
+    : resultado;
 
   if (error) {
     throw new ApiError(500, "internal_error", undefined, ctx.requestId, error.message);

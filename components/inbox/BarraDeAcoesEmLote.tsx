@@ -1,16 +1,7 @@
 "use client";
 import { useState } from "react";
-import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,22 +10,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-import { useAssignableMembers } from "@/hooks/inbox/useAssignableMembers";
 import { useT } from "@/hooks/i18n/useT";
-import { ArrowRight, Archive, Check, Pause, Robot, X } from "@/lib/ui/icons";
+import { ArrowRight, Archive, Pause, Robot, X } from "@/lib/ui/icons";
 import { ArchiveConversationDialog } from "@/components/inbox/ArchiveConversationDialog";
 import type { ConfiguracaoDoArquivamento } from "@/lib/inbox/configuracao-do-arquivamento";
 import { CONFIGURACAO_PADRAO_DO_ARQUIVAMENTO } from "@/lib/inbox/configuracao-do-arquivamento";
-import { rotuloDoMembro } from "@/lib/users/rotulo-do-atendente";
+import { TransferirConversasDialog } from "./TransferirConversasDialog";
 
 interface Props {
   /** Quantas conversas estão marcadas. Zero = a barra não existe. */
@@ -84,24 +65,9 @@ export function BarraDeAcoesEmLote({
 }: Props) {
   const t = useT();
   const [transferirAberto, setTransferirAberto] = useState(false);
-  const [destino, setDestino] = useState("");
-  const [motivo, setMotivo] = useState("");
   const [arquivamentoAberto, setArquivamentoAberto] = useState(false);
-  const membros = useAssignableMembers(transferirAberto);
-  const lista = membros.data ?? [];
 
   if (quantidade === 0) return null;
-
-  const confirmarTransferencia = () => {
-    if (!destino) {
-      toast.error(t("Escolha para quem transferir."));
-      return;
-    }
-    onTransferir(destino, motivo.trim() || undefined);
-    setTransferirAberto(false);
-    setDestino("");
-    setMotivo("");
-  };
 
   const iniciarArquivamento = () => {
     if (archiveDialogConfig.enabled) setArquivamentoAberto(true);
@@ -182,75 +148,15 @@ export function BarraDeAcoesEmLote({
         <X size={14} aria-hidden />
       </Button>
 
-      <Dialog
-        open={transferirAberto}
-        onOpenChange={(v) => {
-          setTransferirAberto(v);
-          if (!v) {
-            setDestino("");
-            setMotivo("");
-          }
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {quantidade === 1
-                ? t("Transferir a conversa selecionada")
-                : `${t("Transferir")} ${quantidade} ${t("conversas selecionadas")}`}
-            </DialogTitle>
-            <DialogDescription>
-              {t(
-                "Cada conversa é transferida pelo mesmo caminho de sempre, com evento e auditoria próprios.",
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="lote-destino">{t("Para quem")}</Label>
-              <Select value={destino} onValueChange={setDestino}>
-                <SelectTrigger id="lote-destino">
-                  <SelectValue placeholder={t("Escolha um atendente")} />
-                </SelectTrigger>
-                <SelectContent>
-                  {lista.map((m) => (
-                    <SelectItem key={m.user_id} value={m.user_id}>
-                      {rotuloDoMembro(m, t)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {!membros.isLoading && lista.length === 0 && (
-                <p className="text-xs text-text-subtle">
-                  {t("Nenhum atendente disponível para transferir.")}
-                </p>
-              )}
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="lote-motivo">{t("Motivo (opcional)")}</Label>
-              <Textarea
-                id="lote-motivo"
-                value={motivo}
-                maxLength={500}
-                onChange={(e) => setMotivo(e.target.value)}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setTransferirAberto(false)}>
-              {t("Cancelar")}
-            </Button>
-            <Button
-              onClick={confirmarTransferencia}
-              disabled={pendente || destino.length === 0}
-              data-testid="lote-transferir-confirmar"
-            >
-              <Check size={14} className="mr-1.5" aria-hidden />
-              {t("Transferir")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {transferirAberto && (
+        <TransferirConversasDialog
+          quantidade={quantidade}
+          pendente={pendente}
+          onFechar={() => setTransferirAberto(false)}
+          onTransferir={onTransferir}
+          prefixo="lote"
+        />
+      )}
       {arquivamentoAberto && (
         <ArchiveConversationDialog
           open

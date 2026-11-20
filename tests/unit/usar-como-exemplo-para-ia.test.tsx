@@ -121,7 +121,8 @@ describe("o clique chega na rota usable-for-rag (#3006)", () => {
     const user = userEvent.setup();
     montarLista(comExemplo(false));
 
-    await user.click(screen.getByRole("button", { name: ROTULO_MARCAR }));
+    await user.click(screen.getByRole("button", { name: "Mais ações da conversa" }));
+    await user.click(screen.getByRole("menuitem", { name: ROTULO_MARCAR }));
 
     await waitFor(() => expect(apiClient.post).toHaveBeenCalledTimes(1));
     expect(apiClient.post).toHaveBeenCalledWith(ROTA, { enabled: true });
@@ -131,7 +132,8 @@ describe("o clique chega na rota usable-for-rag (#3006)", () => {
     const user = userEvent.setup();
     montarLista(comExemplo(true));
 
-    await user.click(screen.getByRole("button", { name: ROTULO_DESMARCAR }));
+    await user.click(screen.getByRole("button", { name: "Mais ações da conversa" }));
+    await user.click(screen.getByRole("menuitem", { name: ROTULO_DESMARCAR }));
 
     await waitFor(() => expect(apiClient.post).toHaveBeenCalledTimes(1));
     expect(apiClient.post).toHaveBeenCalledWith(ROTA, { enabled: false });
@@ -139,7 +141,8 @@ describe("o clique chega na rota usable-for-rag (#3006)", () => {
 
   it("CONTROLE: sem clique, nenhuma chamada sai — o botão não dispara sozinho", async () => {
     montarLista(comExemplo(false));
-    expect(screen.getByRole("button", { name: ROTULO_MARCAR })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Mais ações da conversa" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: ROTULO_MARCAR })).toBeNull();
     expect(apiClient.post).not.toHaveBeenCalled();
   });
 });
@@ -156,19 +159,16 @@ describe("o selo da conversa marcada (#3006)", () => {
     expect(screen.queryByTestId("selo-exemplo-ia")).toBeNull();
   });
 
-  it("o controle diz o que vai acontecer: marcar quando está fora, desmarcar quando está dentro", () => {
+  it("o menu diz se a ação é incluir ou remover o exemplo", async () => {
+    const user = userEvent.setup();
     const { unmount } = montarLinha(comExemplo(false));
-    expect(screen.getByRole("button", { name: ROTULO_MARCAR })).toHaveAttribute(
-      "aria-pressed",
-      "false",
-    );
+    await user.click(screen.getByRole("button", { name: "Mais ações da conversa" }));
+    expect(screen.getByRole("menuitem", { name: ROTULO_MARCAR })).toBeInTheDocument();
     unmount();
 
     montarLinha(comExemplo(true));
-    expect(screen.getByRole("button", { name: ROTULO_DESMARCAR })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    await user.click(screen.getByRole("button", { name: "Mais ações da conversa" }));
+    expect(screen.getByRole("menuitem", { name: ROTULO_DESMARCAR })).toBeInTheDocument();
   });
 });
 
@@ -181,7 +181,7 @@ describe("a linha sem a ação continua sendo a linha de antes (#3006)", () => {
       />,
     );
     expect(screen.queryByTestId(`exemplo-ia-${conversaDeExemplo.conversation.id}`)).toBeNull();
-    expect(screen.queryByRole("button", { name: ROTULO_DESMARCAR })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Mais ações da conversa" })).toBeNull();
   });
 });
 

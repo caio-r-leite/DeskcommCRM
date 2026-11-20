@@ -59,6 +59,7 @@ export {
   BellSlash,
   DeviceMobile,
   EnvelopeSimple,
+  EnvelopeSimpleOpen,
   PaperPlaneTilt,
   Smiley,
   Fire,

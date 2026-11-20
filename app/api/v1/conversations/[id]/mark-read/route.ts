@@ -1,17 +1,20 @@
 import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
- * POST /api/v1/conversations/[id]/mark-read — zera unread_count_for_assignee.
+ * POST /api/v1/conversations/[id]/mark-read — marca como lida.
+ * DELETE /api/v1/conversations/[id]/mark-read — remove a marca de leitura.
  *
  * Disparado pelo inbox após 1,5s com a conversa em foco (EPIC-03 S-03.10).
  * RLS garante que só conversas visíveis ao ator são atualizadas.
  */
 import { randomUUID } from "node:crypto";
 import { type NextRequest } from "next/server";
+import { z } from "zod";
 
 import { ApiError } from "@/lib/api/types";
 import { ok, fail } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
 import { createClient } from "@/lib/supabase/server";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 import { markConversationReadHandler } from "../../_handler";
 
@@ -21,7 +24,7 @@ interface RouteCtx {
   params: Promise<{ id: string }>;
 }
 
-export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
+async function mudarLeitura(ctx: RouteCtx, lida: boolean): Promise<Response> {
   const supportDenied = await requireSupportWrite();
   if (supportDenied) return supportDenied;
 
@@ -31,6 +34,9 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
 
   const authz = await requireRole("agent", { requestId, resource: "conversations" });
   if (!authz.ok) return authz.response;
+  if (!z.string().uuid().safeParse(id).success) {
+    return fail("invalid_request", traduzir("Conversa não encontrada.", authz.user.idioma), 400, { requestId });
+  }
 
   try {
     const conv = await markConversationReadHandler(
@@ -42,6 +48,7 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
         idioma: authz.user.idioma,
       },
       id,
+      lida,
     );
     return ok(conv, { requestId });
   } catch (err) {
@@ -50,4 +57,12 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
     }
     throw err;
   }
+}
+
+export function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
+  return mudarLeitura(ctx, true);
+}
+
+export function DELETE(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
+  return mudarLeitura(ctx, false);
 }

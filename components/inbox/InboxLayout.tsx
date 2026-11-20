@@ -27,11 +27,13 @@ import { useParticipantesDaConversa } from "@/hooks/inbox/useParticipantesDaConv
 import { useParticipacoesRealtime } from "@/hooks/inbox/useParticipacoesRealtime";
 import { ConversationList } from "./ConversationList";
 import { BarraDeAcoesEmLote } from "./BarraDeAcoesEmLote";
+import { ArchiveConversationDialog } from "./ArchiveConversationDialog";
+import { TransferirConversasDialog } from "./TransferirConversasDialog";
 import { InboxFilters, type InboxFiltersValue, type InboxTab } from "./InboxFilters";
 import { ChatThread } from "./ChatThread";
 import { Composer, type ComposerHandle } from "./Composer";
 import { ConversationHeader } from "./ConversationHeader";
-import { BotaoIniciarConversa } from "./PainelIniciarConversa";
+import { IniciarConversaPeloMenu } from "./PainelIniciarConversa";
 import { RetentionNotice } from "./RetentionNotice";
 import { CRMSidePanel } from "./CRMSidePanel";
 import { QuickRepliesPanel } from "./QuickRepliesPanel";
@@ -339,6 +341,12 @@ export function InboxLayout({
   const searchParams = useSearchParams();
   const tab = parseFilterParam(searchParams.get("filter"));
   const idNaUrl = searchParams.get("id");
+  const iniciarConversaAberto = searchParams.get("iniciar") === "1";
+  function fecharIniciarConversa() {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("iniciar");
+    window.history.replaceState(null, "", url);
+  }
   /**
    * `?tag=` é o destino do link de cada linha do relatório Por etiqueta
    * (#1891): a lista nasce filtrada pelo marcador escolhido lá. Sem esta
@@ -685,10 +693,34 @@ export function InboxLayout({
 
   // A leitura da conversa aberta é do upstream e fica: sem ela o contador de
   // não-lidas nunca zera para quem abre a conversa.
-  useMarkAsRead(
+  const leituraAutomatica = useMarkAsRead(
     selectedConversation?.id ?? null,
     selectedConversation?.unread_count_for_assignee ?? 0,
   );
+
+  const [dialogoDaLinha, setDialogoDaLinha] = useState<{
+    acao: "archive" | "transfer";
+    id: string;
+    contactId: string | null;
+  } | null>(null);
+
+  function agirNaConversa(conversa: ConversationWithContact, acao: AcaoEmLote) {
+    if (acao === "transfer" || (acao === "archive" && archiveDialogConfig.enabled)) {
+      setDialogoDaLinha({ acao, id: conversa.id, contactId: conversa.contacts?.id ?? null });
+      return;
+    }
+    if (acao === "mark-unread") leituraAutomatica.suspender(conversa.id);
+    lote.mutate({ ids: [conversa.id], action: acao }, {
+      onSuccess: ({ data }) => {
+        if (acao === "mark-read" || (acao === "mark-unread" && data.feitos === 0)) {
+          leituraAutomatica.retomar(conversa.id);
+        }
+      },
+      onError: () => {
+        if (acao === "mark-unread") leituraAutomatica.retomar(conversa.id);
+      },
+    });
+  }
 
   // Aceita `null`: é o VOLTAR do celular, que limpa a seleção e devolve a lista.
   // É um SUPERCONJUNTO do `handleSelect` do upstream — o tipo dele não aceita
@@ -1028,7 +1060,9 @@ export function InboxLayout({
           colunas.lista,
         )}
       >
-        <BotaoIniciarConversa />
+        {iniciarConversaAberto && (
+          <IniciarConversaPeloMenu onFechar={fecharIniciarConversa} />
+        )}
         <InboxFilters
           value={filterValue}
           onChange={setFilterValue}
@@ -1050,6 +1084,31 @@ export function InboxLayout({
             onLimpar={selecao.limpar}
           />
         )}
+        {dialogoDaLinha?.acao === "archive" && (
+          <ArchiveConversationDialog
+            open
+            config={archiveDialogConfig}
+            quantidade={1}
+            contactId={dialogoDaLinha.contactId}
+            pending={lote.isPending}
+            onCancel={() => setDialogoDaLinha(null)}
+            onArchive={async () => {
+              const { data } = await lote.mutateAsync({ ids: [dialogoDaLinha.id], action: "archive" });
+              if (data.feitos === 0) throw new Error("Arquivamento recusado.");
+            }}
+          />
+        )}
+        {dialogoDaLinha?.acao === "transfer" && (
+          <TransferirConversasDialog
+            quantidade={1}
+            pendente={lote.isPending}
+            prefixo="linha"
+            onFechar={() => setDialogoDaLinha(null)}
+            onTransferir={(toUserId, reason) => lote.mutate({
+              ids: [dialogoDaLinha.id], action: "transfer", to_user_id: toUserId, reason,
+            })}
+          />
+        )}
         <div className="min-h-0 flex-1 overflow-hidden">
           <ConversationList
             listQuery={listQ}
@@ -1069,6 +1128,8 @@ export function InboxLayout({
                 : undefined
             }
             podeMarcarExemplo={podeMarcarExemplo}
+            onAcaoDaConversa={podeAgirEmLote ? agirNaConversa : undefined}
+            acaoPendente={lote.isPending}
           />
         </div>
       </div>

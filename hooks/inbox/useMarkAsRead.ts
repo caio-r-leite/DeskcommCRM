@@ -14,6 +14,7 @@ export function useMarkAsRead(conversationId: string | null, unread: number) {
   const { user } = useAuth();
   const readonly = user.support?.access_mode === "support_readonly";
   const qc = useQueryClient();
+  const suspensa = useRef<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { mutate } = useMutation({
@@ -38,7 +39,8 @@ export function useMarkAsRead(conversationId: string | null, unread: number) {
       timerRef.current = null;
     }
 
-    if (readonly || !conversationId || unread <= 0) return;
+    if (suspensa.current !== conversationId) suspensa.current = null;
+    if (readonly || !conversationId || unread <= 0 || suspensa.current === conversationId) return;
 
     timerRef.current = setTimeout(() => {
       mutate(conversationId);
@@ -48,4 +50,15 @@ export function useMarkAsRead(conversationId: string | null, unread: number) {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, [conversationId, unread, mutate, readonly]);
+
+  return {
+    suspender(id: string) {
+      if (conversationId !== id) return;
+      if (timerRef.current) clearTimeout(timerRef.current);
+      suspensa.current = id;
+    },
+    retomar(id: string) {
+      if (suspensa.current === id) suspensa.current = null;
+    },
+  };
 }

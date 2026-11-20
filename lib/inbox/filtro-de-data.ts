@@ -1,5 +1,7 @@
 export type OrdemDasConversas = "mais_recentes" | "mais_antigas";
 
+export type PeriodoRapidoDaInbox = "hoje" | "ontem" | "ultimos_7_dias" | "ultimos_30_dias";
+
 export interface FiltroDeDataDaInbox {
   dataDe?: string;
   dataAte?: string;
@@ -25,11 +27,12 @@ export function fimLocalEmIso(data?: string): string | undefined {
   if (!data) return undefined;
   const [ano, mes, dia] = data.split("-").map(Number);
   if (!ano || !mes || !dia) return undefined;
-  return new Date(ano, mes - 1, dia, 23, 59, 59, 999).toISOString();
+  // O Postgres registra microssegundos na última mensagem.
+  return new Date(ano, mes - 1, dia, 23, 59, 59, 999).toISOString().replace(".999Z", ".999999Z");
 }
 
 export function periodoRapido(
-  tipo: "ontem" | "ultimos_7_dias" | "ultimos_30_dias",
+  tipo: PeriodoRapidoDaInbox,
   agora = new Date(),
 ): Pick<FiltroDeDataDaInbox, "dataDe" | "dataAte"> {
   const fim = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
@@ -38,7 +41,7 @@ export function periodoRapido(
   if (tipo === "ontem") {
     inicio.setDate(inicio.getDate() - 1);
     fim.setDate(fim.getDate() - 1);
-  } else {
+  } else if (tipo !== "hoje") {
     inicio.setDate(inicio.getDate() - (tipo === "ultimos_7_dias" ? 6 : 29));
   }
 

@@ -11,6 +11,7 @@ export type AcaoEmLote =
   | "close"
   | "archive"
   | "mark-read"
+  | "mark-unread"
   | "pause-ai"
   | "reactivate-bot"
   | "transfer";
@@ -70,10 +71,15 @@ export function useBulkConversations() {
       // 403/422 da CHAMADA (sem permissão, acima do teto): o lote nem começou.
       showApiError(err);
     },
-    onSuccess: (res, args) => {
+    onSuccess: async (res, args) => {
       const r = res.data;
-      qc.invalidateQueries({ queryKey: ["conversations"] });
-      qc.invalidateQueries({ queryKey: ["conversation-counts"] });
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["conversations"] }),
+        qc.invalidateQueries({ queryKey: ["conversation-counts"] }),
+        ...r.resultados
+          .filter((item) => item.feito)
+          .map((item) => qc.invalidateQueries({ queryKey: ["conversation", item.id] })),
+      ]);
 
       const recusados = r.resultados.filter((x) => !x.feito);
       // O verbo do relatório concorda em NÚMERO (#2990). Ele era fixo no plural, e

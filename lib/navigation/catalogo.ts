@@ -182,6 +182,15 @@ export const NAV_CATALOG = [
     contador: "fila",
   },
   {
+    href: "/app/inbox/iniciar",
+    label: "Iniciar conversa",
+    description: "Abra uma conversa pelo contato ou pelo número.",
+    icon: "ChatCircle",
+    group: "atendimento",
+    minRole: "agent",
+    sidebar: true,
+  },
+  {
     href: "/app/radar",
     label: "Radar",
     description: "Quem esfriou e ainda está aberto — o que corre risco de morrer sem resposta.",

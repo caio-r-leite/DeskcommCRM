@@ -15,6 +15,13 @@ import {
 import { CalendarBlank, X } from "@/lib/ui/icons";
 import { cn } from "@/lib/utils";
 
+const PERIODOS_RAPIDOS = [
+  ["hoje", "Hoje"],
+  ["ontem", "Ontem"],
+  ["ultimos_7_dias", "Última semana"],
+  ["ultimos_30_dias", "Último mês"],
+] as const;
+
 interface Props {
   value: FiltroDeDataDaInbox;
   fila: boolean;
@@ -24,16 +31,36 @@ interface Props {
 export function FiltroDataConversas({ value, fila, onChange }: Props) {
   const t = useT();
   const [aberto, setAberto] = useState(false);
+  const [rascunho, setRascunho] = useState({ dataDe: value.dataDe, dataAte: value.dataAte });
   const [mes, setMes] = useState("");
   const temPeriodo = Boolean(value.dataDe || value.dataAte);
-  const valido = intervaloDeDataValido(value.dataDe, value.dataAte);
+  const valido = intervaloDeDataValido(rascunho.dataDe, rascunho.dataAte);
+  const alterado = rascunho.dataDe !== value.dataDe || rascunho.dataAte !== value.dataAte;
 
-  const limpar = () =>
-    onChange({ dataDe: undefined, dataAte: undefined, ordem: value.ordem });
+  function mudarAbertura(next: boolean) {
+    if (next) {
+      setRascunho({ dataDe: value.dataDe, dataAte: value.dataAte });
+      const mesAtual = value.dataDe?.slice(0, 7) ?? "";
+      const periodo = periodoDoMes(mesAtual);
+      setMes(mesAtual && periodo.dataDe === value.dataDe && periodo.dataAte === value.dataAte ? mesAtual : "");
+    }
+    setAberto(next);
+  }
+
+  function aplicar(periodo: Pick<FiltroDeDataDaInbox, "dataDe" | "dataAte">) {
+    onChange({ ...value, dataDe: periodo.dataDe, dataAte: periodo.dataAte });
+    setAberto(false);
+  }
+
+  function limpar() {
+    onChange({ ordem: value.ordem, dataDe: undefined, dataAte: undefined });
+    setRascunho({ dataDe: undefined, dataAte: undefined });
+    setMes("");
+  }
 
   return (
     <div className="flex shrink-0 items-center gap-1">
-      <Popover open={aberto} onOpenChange={setAberto}>
+      <Popover open={aberto} onOpenChange={mudarAbertura}>
         <PopoverTrigger asChild>
           <button
             type="button"
@@ -56,7 +83,7 @@ export function FiltroDataConversas({ value, fila, onChange }: Props) {
             )}
           </button>
         </PopoverTrigger>
-        <PopoverContent align="end" className="w-72 space-y-4 p-4">
+        <PopoverContent align="end" className="max-h-[var(--radix-popover-content-available-height)] w-72 max-w-[calc(100vw-1rem)] space-y-4 overflow-y-auto p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-text">{t("Data da última mensagem")}</p>
@@ -71,68 +98,86 @@ export function FiltroDataConversas({ value, fila, onChange }: Props) {
 
           <div className="space-y-2">
             <p className="text-xs font-medium text-text-muted">{t("Períodos rápidos")}</p>
-            <div className="grid grid-cols-1 gap-1.5">
-              {(
-                [
-                  ["ontem", "Ontem"],
-                  ["ultimos_7_dias", "Última semana"],
-                  ["ultimos_30_dias", "Último mês"],
-                ] as const
-              ).map(([tipo, label]) => (
-                <Button
-                  key={tipo}
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 justify-start px-3 text-xs"
-                  onClick={() => onChange({ ...value, ...periodoRapido(tipo) })}
-                >
-                  {t(label)}
-                </Button>
-              ))}
+            <div className="grid grid-cols-2 gap-1.5">
+              {PERIODOS_RAPIDOS.map(([tipo, label]) => {
+                const periodo = periodoRapido(tipo);
+                const ativo = value.dataDe === periodo.dataDe && value.dataAte === periodo.dataAte;
+                return (
+                  <Button
+                    key={tipo}
+                    type="button"
+                    variant={ativo ? "default" : "outline"}
+                    aria-pressed={ativo}
+                    size="sm"
+                    className="h-8 justify-start px-2.5 text-xs"
+                    onClick={() => aplicar(periodoRapido(tipo))}
+                  >
+                    {t(label)}
+                  </Button>
+                );
+              })}
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <label className="space-y-1 text-xs font-medium text-text-muted">
-              {t("A partir de")}
-              <Input
-                type="date"
-                value={value.dataDe ?? ""}
-                max={value.dataAte}
-                onChange={(e) => onChange({ ...value, dataDe: e.target.value || undefined })}
-                className="h-9 text-xs"
-              />
-            </label>
-            <label className="space-y-1 text-xs font-medium text-text-muted">
-              {t("Até")}
-              <Input
-                type="date"
-                value={value.dataAte ?? ""}
-                min={value.dataDe}
-                onChange={(e) => onChange({ ...value, dataAte: e.target.value || undefined })}
-                className="h-9 text-xs"
-              />
-            </label>
-          </div>
-          {!valido && (
-            <p role="alert" className="text-xs text-destructive">
-              {t("A data inicial deve ser anterior à data final.")}
-            </p>
-          )}
+          <form
+            className="space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (valido && alterado) aplicar(rascunho);
+            }}
+          >
+            <div className="grid grid-cols-2 gap-2">
+              <label className="min-w-0 space-y-1 text-xs font-medium text-text-muted">
+                {t("A partir de")}
+                <Input
+                  type="date"
+                  value={rascunho.dataDe ?? ""}
+                  aria-invalid={!valido || undefined}
+                  onChange={(e) => {
+                    setRascunho({ ...rascunho, dataDe: e.target.value || undefined });
+                    setMes("");
+                  }}
+                  className="h-9 px-2 text-xs"
+                />
+              </label>
+              <label className="min-w-0 space-y-1 text-xs font-medium text-text-muted">
+                {t("Até")}
+                <Input
+                  type="date"
+                  value={rascunho.dataAte ?? ""}
+                  aria-invalid={!valido || undefined}
+                  onChange={(e) => {
+                    setRascunho({ ...rascunho, dataAte: e.target.value || undefined });
+                    setMes("");
+                  }}
+                  className="h-9 px-2 text-xs"
+                />
+              </label>
+            </div>
+            {!valido && (
+              <p role="alert" className="text-xs text-destructive">
+                {t("A data inicial deve ser anterior à data final.")}
+              </p>
+            )}
 
-          <label className="block space-y-1 text-xs font-medium text-text-muted">
-            {t("Mês específico")}
-            <Input
-              type="month"
-              value={mes}
-              onChange={(e) => {
-                setMes(e.target.value);
-                onChange({ ...value, ...periodoDoMes(e.target.value) });
-              }}
-              className="h-9 text-xs"
-            />
-          </label>
+            <label className="block space-y-1 text-xs font-medium text-text-muted">
+              {t("Mês específico")}
+              <Input
+                type="month"
+                value={mes}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  const { dataDe, dataAte } = periodoDoMes(next);
+                  setMes(next);
+                  setRascunho({ dataDe, dataAte });
+                }}
+                className="h-9 text-xs"
+              />
+            </label>
+            <Button type="submit" size="sm" className="w-full" disabled={!valido || !alterado}>
+              {t("Aplicar filtro de data")}
+            </Button>
+          </form>
 
           <div className="space-y-2 border-t border-border pt-3">
             <p className="text-xs font-medium text-text-muted">{t("Ordenar lista")}</p>

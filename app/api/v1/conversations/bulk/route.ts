@@ -2,7 +2,7 @@ import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * POST /api/v1/conversations/bulk — a camada de lote da Inbox (#2484, fatia F1).
  *
- * UMA rota para todas as ações em lote (`close`, `archive`, `mark-read`,
+ * UMA rota para todas as ações em lote (`close`, `archive`, `mark-read`, `mark-unread`,
  * `pause-ai`, `reactivate-bot`, `transfer`), discriminada por `action`.
  *
  * ── O desenho, e por que ele NÃO é o do `leads/bulk` ─────────────────────
@@ -64,7 +64,7 @@ import { bulkConversationActionSchema, validateRequest } from "@/lib/schemas";
 import type { BulkConversationActionInput } from "@/lib/schemas";
 
 import { POST as fecharUmaConversa } from "../[id]/close/route";
-import { POST as marcarComoLida } from "../[id]/mark-read/route";
+import { DELETE as marcarComoNaoLida, POST as marcarComoLida } from "../[id]/mark-read/route";
 import { POST as pausarAutomatico } from "../[id]/pause-ai/route";
 import { POST as devolverAoAutomatico } from "../[id]/reactivate-bot/route";
 import { POST as transferirUmaConversa } from "../[id]/transfer/route";
@@ -124,8 +124,8 @@ async function classificar(res: Response, id: string): Promise<ResultadoDoItem> 
 function requestDoItem(
   id: string,
   caminho: string,
-  metodo: "POST" | "PATCH",
-  corpo: Record<string, unknown>,
+  metodo: "POST" | "PATCH" | "DELETE",
+  corpo?: Record<string, unknown>,
 ): NextRequest {
   return new NextRequest(`http://localhost/api/v1/conversations/${id}${caminho}`, {
     method: metodo,
@@ -163,6 +163,8 @@ async function executarNoItem(
       );
     case "mark-read":
       return marcarComoLida(requestDoItem(id, "/mark-read", "POST", {}), ctxDoItem(id));
+    case "mark-unread":
+      return marcarComoNaoLida(requestDoItem(id, "/mark-read", "DELETE"), ctxDoItem(id));
     case "pause-ai":
       return pausarAutomatico(requestDoItem(id, "/pause-ai", "POST", {}), ctxDoItem(id));
     case "reactivate-bot":

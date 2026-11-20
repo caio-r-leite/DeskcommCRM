@@ -496,6 +496,20 @@ describe("POST /api/v1/conversations/bulk", () => {
     expect(estado.conversas.find((c) => c.id === CONV_B)?.unread_count_for_assignee).toBe(2);
   });
 
+  it("marca como não lida sem apagar contagens maiores ou tocar outra organização", async () => {
+    const zerar = await POST(req({ action: "mark-read", ids: [CONV_A] }));
+    expect((await corpoDe(zerar)).data.feitos).toBe(1);
+    const res = await POST(req({ action: "mark-unread", ids: [CONV_A, CONV_B] }));
+    expect((await corpoDe(res)).data.feitos).toBe(1);
+    expect(estado.conversas.find((c) => c.id === CONV_A)?.unread_count_for_assignee).toBe(1);
+    expect(estado.conversas.find((c) => c.id === CONV_B)?.unread_count_for_assignee).toBe(2);
+
+    const conversa = estado.conversas.find((c) => c.id === CONV_A)!;
+    conversa.unread_count_for_assignee = 5;
+    await POST(req({ action: "mark-unread", ids: [CONV_A] }));
+    expect(estado.conversas.find((c) => c.id === CONV_A)?.unread_count_for_assignee).toBe(5);
+  });
+
   it("pause-ai audita conversation.ai_paused por conversa", async () => {
     const res = await POST(req({ action: "pause-ai", ids: [CONV_A] }));
 
