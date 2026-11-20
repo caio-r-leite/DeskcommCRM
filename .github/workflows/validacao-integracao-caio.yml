@@ -1,0 +1,35 @@
+name: Validar build da integração
+
+on:
+  push:
+    branches: [codex/validacao-integracao-20261120]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/preparar-node
+        timeout-minutes: 5
+
+      - name: Compilar a versão candidata
+        run: pnpm build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: placeholder-server-key
+          NEXT_PUBLIC_APP_URL: https://placeholder.invalid
+          NEXT_PUBLIC_ADMIN_URL: https://placeholder.invalid
+          SENTRY_DSN: "off"
+          NODE_OPTIONS: --max-old-space-size=6144
+
+      - name: Conferir o artefato
+        run: test -f .next/standalone/server.js && test -d .next/static
