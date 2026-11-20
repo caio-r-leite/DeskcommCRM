@@ -9,6 +9,7 @@ permissions:
 
 jobs:
   build:
+    if: "!contains(github.event.head_commit.message, '[e2e]')"
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -33,3 +34,62 @@ jobs:
 
       - name: Conferir o artefato
         run: test -f .next/standalone/server.js && test -d .next/static
+
+  navegador:
+    if: contains(github.event.head_commit.message, '[e2e]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/preparar-node
+        timeout-minutes: 5
+
+      - uses: supabase/setup-cli@v3
+        with:
+          version: 2.117.0
+
+      - name: Preparar Supabase descartável
+        shell: bash
+        run: |
+          set -euo pipefail
+          migrations_aux=$(mktemp -d)
+          mv supabase/migrations "$migrations_aux/"
+          trap 'rmdir supabase/migrations && mv "$migrations_aux/migrations" supabase/' EXIT
+          mkdir supabase/migrations
+          SUPABASE_INTERNAL_IMAGE_REGISTRY="" supabase start -x studio,postgres-meta > /tmp/deskcomm-supabase.log 2>&1 || {
+            grep -Ei 'error|failed|timeout' /tmp/deskcomm-supabase.log | tail -15
+            exit 1
+          }
+          db_url='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+          psql "$db_url" -v ON_ERROR_STOP=1 -q <<'SQL'
+          create schema if not exists extensions;
+          create extension if not exists "uuid-ossp" with schema extensions;
+          create extension if not exists pgcrypto with schema extensions;
+          create extension if not exists vector with schema public;
+          create extension if not exists citext with schema public;
+          create extension if not exists pg_trgm with schema public;
+          SQL
+          psql "$db_url" -v ON_ERROR_STOP=1 -q -f supabase/baseline.sql
+          docker restart supabase_realtime_deskcomm-crm
+
+      - name: Gerar o ambiente de teste
+        run: |
+          pnpm e2e:env
+          grep -vE '^[[:space:]]*(#|$)' .env.e2e >> "$GITHUB_ENV"
+
+      - name: Compilar com o ambiente de teste
+        run: pnpm e2e:build
+        env:
+          SENTRY_DSN: "off"
+
+      - name: Instalar o Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Testar respostas rápidas e criação de lead
+        run: >-
+          pnpm exec playwright test --workers=1 --reporter=list
+          tests/e2e/respostas-rapidas-conteudos.spec.ts
+          tests/e2e/conversa-vira-lead.spec.ts
