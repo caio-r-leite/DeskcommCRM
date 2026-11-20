@@ -54,7 +54,7 @@ import { CaretLeft, ChatCircle, IdentificationCard, Lightning, MagnifyingGlass, 
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
-import { comandosDaFila } from "@/lib/inbox/comando-da-conversa";
+import { comandosDaFila, STATUS_ENCERRADOS } from "@/lib/inbox/comando-da-conversa";
 import { togglePainelDoContato } from "@/app/actions/inbox/togglePainelDoContato";
 import type { AvisoDeRascunho } from "@/lib/inbox/rascunho-sugerido";
 import { buscaValeConsulta } from "@/lib/inbox/termo-de-busca";
@@ -702,11 +702,17 @@ export function InboxLayout({
     acao: "archive" | "transfer";
     id: string;
     contactId: string | null;
+    encerraAtendimento: boolean;
   } | null>(null);
 
   function agirNaConversa(conversa: ConversationWithContact, acao: AcaoEmLote) {
     if (acao === "transfer" || (acao === "archive" && archiveDialogConfig.enabled)) {
-      setDialogoDaLinha({ acao, id: conversa.id, contactId: conversa.contacts?.id ?? null });
+      setDialogoDaLinha({
+        acao,
+        id: conversa.id,
+        contactId: conversa.contacts?.id ?? null,
+        encerraAtendimento: !STATUS_ENCERRADOS.has(conversa.status),
+      });
       return;
     }
     if (acao === "mark-unread") leituraAutomatica.suspender(conversa.id);
@@ -1090,6 +1096,7 @@ export function InboxLayout({
             config={archiveDialogConfig}
             quantidade={1}
             contactId={dialogoDaLinha.contactId}
+            encerraAtendimento={dialogoDaLinha.encerraAtendimento}
             pending={lote.isPending}
             onCancel={() => setDialogoDaLinha(null)}
             onArchive={async () => {

@@ -454,6 +454,12 @@ test("Inbox @layout: iniciar pelo Atendimento e agir no card sem selecionar em l
     await expect(page.getByRole("button", { name: "Cancelar arquivamento" })).toBeVisible();
     await page.getByRole("button", { name: "Cancelar arquivamento" }).click();
     await expect(linha).toBeVisible();
+    await linha.getByRole("button", { name: "Arquivar conversa" }).click();
+    await page.getByRole("button", { name: "Arquivar agora", exact: true }).click();
+    await expect.poll(async () => {
+      const response = await page.request.get(`/api/v1/conversations/${id}`);
+      return response.ok() ? (await response.json()).data.status : response.status();
+    }).toBe("archived");
 
     const iniciar = page.getByRole("link", { name: "Iniciar conversa", exact: true });
     await expect(page.getByRole("button", { name: "Iniciar conversa", exact: true })).toHaveCount(0);

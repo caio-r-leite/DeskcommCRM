@@ -20669,7 +20669,6 @@ export const DICIONARIO: Traducoes = {
   "Filtrar e ordenar por data": { es: "Filtrar y ordenar por fecha" },
   "Data da última mensagem": { es: "Fecha del último mensaje" },
   "Filtre o período exibido na lista.": { es: "Filtra el período mostrado en la lista." },
-  "Hoje": { es: "Hoy" },
   "Aplicar filtro de data": { es: "Aplicar filtro de fecha" },
   "Marcar como não lida": { es: "Marcar como no leída" },
   "Mais ações da conversa": { es: "Más acciones de la conversación" },
