@@ -83,7 +83,7 @@ export function FiltroDataConversas({ value, fila, onChange }: Props) {
             )}
           </button>
         </PopoverTrigger>
-        <PopoverContent align="end" className="max-h-[var(--radix-popover-content-available-height)] w-72 max-w-[calc(100vw-1rem)] space-y-4 overflow-y-auto p-4">
+        <PopoverContent align="end" className="max-h-[var(--radix-popover-content-available-height)] w-80 max-w-[calc(100vw-1rem)] space-y-4 overflow-y-auto p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-text">{t("Data da última mensagem")}</p>
@@ -137,7 +137,7 @@ export function FiltroDataConversas({ value, fila, onChange }: Props) {
                     setRascunho({ ...rascunho, dataDe: e.target.value || undefined });
                     setMes("");
                   }}
-                  className="h-9 px-2 text-xs"
+                  className="h-9 px-2 text-xs [&::-webkit-calendar-picker-indicator]:m-0"
                 />
               </label>
               <label className="min-w-0 space-y-1 text-xs font-medium text-text-muted">
@@ -150,7 +150,7 @@ export function FiltroDataConversas({ value, fila, onChange }: Props) {
                     setRascunho({ ...rascunho, dataAte: e.target.value || undefined });
                     setMes("");
                   }}
-                  className="h-9 px-2 text-xs"
+                  className="h-9 px-2 text-xs [&::-webkit-calendar-picker-indicator]:m-0"
                 />
               </label>
             </div>
