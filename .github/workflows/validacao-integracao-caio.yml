@@ -42,7 +42,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 0300d6ebf53866cf62a845a4aae5435f8b4716fa
+          ref: 46f7efabbe93d6b9d179adea9a23b6eb97b11ad7
           persist-credentials: false
 
       - uses: ./.github/actions/preparar-node
@@ -108,7 +108,7 @@ jobs:
           retention-days: 7
 
   empacotar-arm64:
-    if: contains(github.event.head_commit.message, '[inbox-arm64]')
+    if: contains(github.event.head_commit.message, '[inbox]')
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 28
     strategy:
@@ -118,11 +118,11 @@ jobs:
           - servico: app
             dockerfile: Dockerfile
     env:
-      RELEASE_COMMIT: 0300d6ebf53866cf62a845a4aae5435f8b4716fa
+      RELEASE_COMMIT: 46f7efabbe93d6b9d179adea9a23b6eb97b11ad7
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 0300d6ebf53866cf62a845a4aae5435f8b4716fa
+          ref: 46f7efabbe93d6b9d179adea9a23b6eb97b11ad7
           persist-credentials: false
 
       - name: Construir imagem ARM64
