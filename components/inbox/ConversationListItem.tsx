@@ -3,7 +3,6 @@
 import { useLocaleDeData } from "@/hooks/i18n/useLocaleDeData";
 
 import type { Locale } from "date-fns";
-import { formatDistanceToNowStrict } from "date-fns";
 import { useT } from "@/hooks/i18n/useT";
 import { Check, Robot, Sparkle } from "@/lib/ui/icons";
 import { ChannelLogo } from "@/components/inbox/ChannelLogo";
@@ -195,7 +194,7 @@ export function ConversationListItem({
   ].filter(Boolean);
   const visibleTags = tags.slice(0, 3);
   const overflow = tags.length - visibleTags.length;
-  const hiddenTags = tags.slice(2);
+  const hiddenTags = tags.slice(visibleTags.length);
   const preview = conversation.last_message_preview?.trim() || t("Sem mensagens");
   const truncated = preview.length > 60 ? `${preview.slice(0, 60)}…` : preview;
   const naFila = queuePosition !== undefined;

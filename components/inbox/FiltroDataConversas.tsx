@@ -190,6 +190,7 @@ export function FiltroDataConversas({ value, fila, onChange }: Props) {
                 <Button
                   type="button"
                   size="sm"
+                  aria-pressed={(value.ordem ?? "mais_recentes") === "mais_recentes"}
                   variant={
                     (value.ordem ?? "mais_recentes") === "mais_recentes" ? "default" : "outline"
                   }
@@ -200,6 +201,7 @@ export function FiltroDataConversas({ value, fila, onChange }: Props) {
                 <Button
                   type="button"
                   size="sm"
+                  aria-pressed={value.ordem === "mais_antigas"}
                   variant={value.ordem === "mais_antigas" ? "default" : "outline"}
                   onClick={() => onChange({ ...value, ordem: "mais_antigas" })}
                 >

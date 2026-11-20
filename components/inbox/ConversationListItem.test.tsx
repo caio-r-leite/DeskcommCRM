@@ -163,6 +163,7 @@ describe("ConversationListItem — etiquetas que não couberam (#3649)", () => {
         {...conversaDeExemplo.props}
       />,
     );
-    expect(screen.getByText("+2")).toHaveAttribute("title", "retorno, boleto");
+    expect(screen.getByText("retorno")).toBeVisible();
+    expect(screen.getByText("+1")).toHaveAttribute("title", "boleto");
   });
 });
