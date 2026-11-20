@@ -42,7 +42,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 46f7efabbe93d6b9d179adea9a23b6eb97b11ad7
+          ref: 8681b806cc1bd9b13203518171b79d14bc3463b6
           persist-credentials: false
       - uses: ./.github/actions/preparar-node
       - run: pnpm typecheck
@@ -50,13 +50,13 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=8192
 
   navegador:
-    if: contains(github.event.head_commit.message, '[inbox-e2e]')
+    if: contains(github.event.head_commit.message, '[inbox]')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 46f7efabbe93d6b9d179adea9a23b6eb97b11ad7
+          ref: 8681b806cc1bd9b13203518171b79d14bc3463b6
           persist-credentials: false
 
       - uses: ./.github/actions/preparar-node
@@ -127,11 +127,11 @@ jobs:
           - servico: app
             dockerfile: Dockerfile
     env:
-      RELEASE_COMMIT: 46f7efabbe93d6b9d179adea9a23b6eb97b11ad7
+      RELEASE_COMMIT: 8681b806cc1bd9b13203518171b79d14bc3463b6
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 46f7efabbe93d6b9d179adea9a23b6eb97b11ad7
+          ref: 8681b806cc1bd9b13203518171b79d14bc3463b6
           persist-credentials: false
 
       - name: Construir imagem ARM64
