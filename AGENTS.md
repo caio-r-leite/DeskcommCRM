@@ -143,6 +143,15 @@ pnpm test:shell       # scripts do kit self-host (bash)
 pnpm gov:verify       # typecheck + lint + lint:channels + lint:role-rank + test:unit
 ```
 
+Antes de investigar uma falha em `test:db`, E2E ou na stack local, confirme que o Docker responde:
+
+```bash
+docker info --format 'Docker ativo: {{.ServerVersion}}'
+```
+
+Se o comando falhar ou não responder em poucos segundos, abra ou reinicie o Docker Desktop antes
+de depurar a aplicação ou o teste.
+
 Um teste só:
 
 ```bash

@@ -57,3 +57,15 @@ export function totalWaitSeconds(steps: readonly { action_type: string; wait_sec
     0,
   );
 }
+
+/**
+ * O executor de resposta rápida envia pelo seu próprio caminho, fora de
+ * `send_message`. Para o turno, uma execução concluída é uma resposta já
+ * entregue: o modelo não deve ganhar outro step para redigir texto livre, nem
+ * o reparo de "turno mudo" deve tentar falar de novo.
+ */
+export function quickReplyExecutionCompleted(result: unknown): boolean {
+  if (typeof result !== "object" || result === null) return false;
+  const execution = result as Record<string, unknown>;
+  return execution.permitido === true && execution.status === "succeeded";
+}

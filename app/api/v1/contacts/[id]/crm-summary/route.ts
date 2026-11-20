@@ -33,6 +33,7 @@ import { type NextRequest } from "next/server";
 
 import { ok, fail } from "@/lib/api/wrappers";
 import { camposDoFunil, settingsDoEmbed } from "@/lib/leads/campos-do-funil";
+import { motivosDoFunil } from "@/lib/leads/motivos-de-perda-do-funil";
 import { createClient } from "@/lib/supabase/server";
 import { nomesDosAtendentes } from "@/lib/users/nome-do-atendente";
 
@@ -227,6 +228,10 @@ function comCamposDoFunil(row: Record<string, unknown>) {
   return {
     ...lead,
     field_defs: camposDoFunil(settingsDoEmbed(crm_pipelines)),
+    // A janela de arquivamento também pode fechar o card como perdido. Ela
+    // recebe a mesma lista do funil para oferecer apenas motivos que o banco
+    // aceita, sem fazer uma segunda consulta a partir do Inbox.
+    motivos_de_perda_do_funil: motivosDoFunil(settingsDoEmbed(crm_pipelines)),
     funil_nome: nomeDoEmbed(crm_pipelines),
     etapa_nome: nomeDoEmbed(crm_stages),
     etapas_do_funil: etapasDoEmbed(crm_pipelines),

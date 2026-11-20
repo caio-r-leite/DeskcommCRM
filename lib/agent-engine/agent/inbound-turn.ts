@@ -1,5 +1,5 @@
 import { prospectingConversationContext } from "@/lib/prospecting/context";
-import { hasAgentTurnTools } from "@/lib/quick-replies/agent-policy";
+import { hasAgentTurnTools, quickReplyExecutionCompleted } from "@/lib/quick-replies/agent-policy";
 import { setExecutionAgentOperation } from '@/lib/atendimento/fronteira-server';
 import { TIPOS_DE_CASO, TIPOS_DE_CASO_PARA_A_IA } from "@/lib/ai/case-copy";
 import { DEFAULT_CHANNEL_PROVIDER } from '@/lib/channels/capabilities';
@@ -4225,6 +4225,10 @@ async function executarTurnoDoAgente(
   // role/scope da ponte nativa; envio e handoff do catálogo são bloqueados —
   // ver edge/crm/mcp-tools.ts). As 8 tools do engine têm precedência de nome.
   let mcpCleanup: (() => Promise<void>) | null = null;
+  // Respostas rápidas saem pelo executor determinístico, não pela tool
+  // `send_message`. Este sinal fecha o loop do modelo e evita que o reparo de
+  // turno mudo envie uma segunda resposta depois do roteiro aprovado.
+  let quickReplyCompletedThisTurn = false;
   try {
     // "digitando…" do INÍCIO do trabalho até a 1ª bolha, renovado a cada 10s.
     // Antes ele acendia uma vez, só na chamada principal ao modelo: os
@@ -4279,6 +4283,18 @@ async function executarTurnoDoAgente(
           mcpCleanup = mcp.cleanup;
           for (const [name, mcpTool] of Object.entries(mcp.tools)) {
             if (name in rawTools) continue;
+            if (name === 'crm_execute_quick_reply' && typeof mcpTool.execute === 'function') {
+              const executeOriginal = mcpTool.execute.bind(mcpTool);
+              rawTools[name] = {
+                ...mcpTool,
+                execute: (async (...args: Parameters<typeof executeOriginal>) => {
+                  const result = await executeOriginal(...args);
+                  if (quickReplyExecutionCompleted(result)) quickReplyCompletedThisTurn = true;
+                  return result;
+                }) as typeof mcpTool.execute,
+              };
+              continue;
+            }
             if (
               (name === 'crm_search_products' || name === 'crm_search_knowledge') &&
               typeof mcpTool.execute === 'function'
@@ -4667,8 +4683,13 @@ async function executarTurnoDoAgente(
         // Rascunho: a resposta é o send_message ACEITO; a etapa seguinte só
         // "encerrava". Aceito, e não chamado: o envio vetado pela cadeia
         // before_send volta ao modelo para ele reescrever (o 1º veto ensina).
-        ...(preview?.kind === 'assisted'
-          ? { pararQuando: () => preview.result.candidates.length > 0 }
+        ...(preview?.kind === 'assisted' ||
+        (agentConfig !== null && agentConfig.quickReplyAccessMode !== 'none')
+          ? {
+              pararQuando: () =>
+                quickReplyCompletedThisTurn ||
+                (preview?.kind === 'assisted' && preview.result.candidates.length > 0),
+            }
           : {}),
         ...(agentConfig !== null
           ? {
@@ -4723,7 +4744,10 @@ async function executarTurnoDoAgente(
       !preview &&
       liveJob().kind === 'inbound_turn' &&
       turnoMudoPedeCorrecao({
-        tentativasDeEnvio,
+        // O roteiro rápido bem-sucedido já falou com o cliente pelo executor
+        // determinístico. Contá-lo aqui impede a correção de "turno mudo" de
+        // pedir ao modelo uma segunda mensagem para a mesma inbound.
+        tentativasDeEnvio: tentativasDeEnvio + (quickReplyCompletedThisTurn ? 1 : 0),
         enviadas: outcomes.length,
         turnoDescartado,
         passouParaAEquipe,
@@ -4771,7 +4795,7 @@ async function executarTurnoDoAgente(
     // a manda — pela MESMA cadeia de guardrails, dentro do teto de envios. Roda
     // mesmo com o teto cheio: registrar que o MODELO fez a pergunta é o que a
     // torna "a pergunta atual" no turno seguinte.
-    if (roteiro !== null) {
+    if (roteiro !== null && !quickReplyCompletedThisTurn) {
       await garantirPerguntaDoRoteiro(
         { pool, log: runLog },
         {

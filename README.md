@@ -395,6 +395,15 @@ pnpm test:db       # Postgres efêmero + baseline install/update + invariantes
 pnpm test:e2e      # Playwright (requer dev server)
 ```
 
+Antes de investigar uma falha em `test:db`, E2E ou na stack local, confirme que o Docker responde:
+
+```bash
+docker info --format 'Docker ativo: {{.ServerVersion}}'
+```
+
+Se o comando falhar ou não responder em poucos segundos, abra ou reinicie o Docker Desktop antes
+de depurar a aplicação ou o teste.
+
 **Estes checks são obrigatórios** pra mergear na `main`. A lista abaixo já disse "quatro" e depois "cinco" — **meça, não confie nela**:
 
 ```bash

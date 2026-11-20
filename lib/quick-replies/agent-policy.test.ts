@@ -4,6 +4,7 @@ import {
   canAgentUseTemplate,
   hasAgentTurnTools,
   matchAuthorizedTemplate,
+  quickReplyExecutionCompleted,
   reconcileSelectedQuickReplies,
   totalWaitSeconds,
 } from "./agent-policy";
@@ -58,5 +59,12 @@ describe("política de respostas rápidas do agente", () => {
       { action_type: "wait", wait_seconds: 2 },
       { action_type: "wait", wait_seconds: 3 },
     ])).toBe(5);
+  });
+
+  it("considera concluído apenas o roteiro que terminou com sucesso", () => {
+    expect(quickReplyExecutionCompleted({ permitido: true, status: "succeeded" })).toBe(true);
+    expect(quickReplyExecutionCompleted({ permitido: true, status: "failed" })).toBe(false);
+    expect(quickReplyExecutionCompleted({ permitido: false, status: "succeeded" })).toBe(false);
+    expect(quickReplyExecutionCompleted(null)).toBe(false);
   });
 });

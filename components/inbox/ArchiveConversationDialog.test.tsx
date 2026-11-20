@@ -138,4 +138,56 @@ describe("ArchiveConversationDialog", () => {
     });
     expect(onArchive).toHaveBeenCalledTimes(1);
   });
+
+  it('só mostra o motivo em etapa de perda, inicia em "Outro" e permite trocar', async () => {
+    vi.useRealTimers();
+    api.get.mockResolvedValue({
+      data: {
+        leads: [
+          {
+            id: "lead-1",
+            title: "Mini torno",
+            pipeline_id: "pipeline-1",
+            stage_id: "stage-1",
+            funil_nome: "Vendas",
+            etapa_nome: "Novo",
+            etapas_do_funil: [
+              { id: "stage-1", name: "Novo", is_won: false, is_lost: false },
+              { id: "stage-2", name: "Apresentado", is_won: false, is_lost: false },
+              { id: "stage-lost", name: "Perdido", is_won: false, is_lost: true },
+            ],
+          },
+        ],
+      },
+    });
+    api.post.mockResolvedValue({ data: { updated_count: 1 } });
+
+    render(
+      <ArchiveConversationDialog
+        open
+        config={config}
+        quantidade={1}
+        contactId="contact-1"
+        onArchive={vi.fn().mockResolvedValue(undefined)}
+        onCancel={() => undefined}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("radio", { name: /Mover o card para outra etapa/ }));
+    expect(screen.queryByLabelText("Motivo")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Nova etapa"), { target: { value: "stage-lost" } });
+    const motivo = screen.getByLabelText("Motivo") as HTMLSelectElement;
+    expect(motivo.value).toBe("other");
+    fireEvent.change(motivo, { target: { value: "price" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Mover card e arquivar" }));
+    await act(async () => Promise.resolve());
+
+    expect(api.post).toHaveBeenCalledWith("/api/v1/leads/bulk", {
+      action: "move",
+      lead_ids: ["lead-1"],
+      params: { stage_id: "stage-lost", lost_reason: "price" },
+    });
+  });
 });

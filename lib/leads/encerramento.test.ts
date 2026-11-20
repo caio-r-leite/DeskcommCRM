@@ -247,6 +247,27 @@ describe("encerraDemanda", () => {
     expect(db.rpcs).toEqual([]);
   });
 
+  it('troca o motivo de um lead já perdido sem fechar o card uma segunda vez', async () => {
+    const lead = baseLead({
+      status: "lost",
+      stage_id: LOST_STAGE,
+      closed_at: "2026-08-19T00:00:00.000Z",
+      lost_reason: "other",
+    });
+    const db = makeDb({ leads: [lead], stages: baseStages() });
+
+    const result = await encerraDemanda(db.client as never, ctx, {
+      leadId: LEAD,
+      desfecho: "lost",
+      motivo: "price",
+    });
+
+    expect(result).toMatchObject({ jaEstava: false, lead: { lost_reason: "price", stage_id: LOST_STAGE } });
+    expect(db.updates).toHaveLength(1);
+    expect(db.updates[0]).toMatchObject({ lost_reason: "price" });
+    expect(db.rpcs).toEqual([]);
+  });
+
   // BUG REPRODUZIDO (crm.fabrasoftware.com.br): a recusa de
   // `fn_validate_lost_reason_required` (22023 `lost_reason_invalid`) chegava
   // como 500 `internal_error` com o texto cru do Postgres — `/lose` e `/win`

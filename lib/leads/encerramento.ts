@@ -132,7 +132,43 @@ export async function encerraDemanda(
   }
 
   if ((lead as { status: string }).status === input.desfecho) {
-    return { lead: lead as Record<string, unknown>, jaEstava: true };
+    // Perder de novo não move o card nem emite um segundo `lead.lost`, mas o
+    // motivo pode ser corrigido. Isso é importante para o arquivamento: ele
+    // fecha com o canônico "Outro" quando ninguém informou um motivo e, depois,
+    // o atendente pode classificá-lo melhor pelo menu do card.
+    const motivoAtual = (lead as { lost_reason?: string | null }).lost_reason ?? null;
+    const motivoNovo = input.motivo?.trim() ?? null;
+    if (input.desfecho !== "lost" || !motivoNovo || motivoAtual === motivoNovo) {
+      return { lead: lead as Record<string, unknown>, jaEstava: true };
+    }
+
+    const patch = { lost_reason: motivoNovo, updated_at: new Date().toISOString() };
+    const { error: updErr } = await supabase
+      .from("crm_leads")
+      .update(patch)
+      .eq("id", input.leadId)
+      .eq("organization_id", ctx.organization_id);
+
+    if (updErr) {
+      const recusa = recusaDeMotivoDaPerdaPeloBanco(updErr, ctx.idioma);
+      if (recusa) {
+        throw new ApiError(422, recusa.codigo, undefined, ctx.requestId, recusa.mensagem);
+      }
+      throw new ApiError(500, "internal_error", undefined, ctx.requestId, updErr.message);
+    }
+
+    const a = actorAuditPayload(ctx.actor);
+    await audit({
+      action: "lead.updated",
+      actorUserId: a.actorUserId,
+      organizationId: ctx.organization_id,
+      resourceType: "crm_lead",
+      resourceId: input.leadId,
+      requestId: ctx.requestId,
+      metadata: { ...a.metadataActor, fields: ["lost_reason"] },
+    });
+
+    return { lead: { ...(lead as Record<string, unknown>), ...patch }, jaEstava: false };
   }
 
   const colunaTerminal = input.desfecho === "won" ? "is_won" : "is_lost";

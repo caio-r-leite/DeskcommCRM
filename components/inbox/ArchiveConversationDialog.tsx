@@ -17,6 +17,8 @@ import { Label } from "@/components/ui/label";
 import { useT } from "@/hooks/i18n/useT";
 import { apiClient } from "@/lib/api/client";
 import type { ConfiguracaoDoArquivamento } from "@/lib/inbox/configuracao-do-arquivamento";
+import { OUTRO, opcoesDeMotivoDePerda } from "@/lib/leads/motivos-de-perda-do-funil";
+import { rotuloDoMotivoDePerda } from "@/lib/schemas/leads";
 import { cn } from "@/lib/utils";
 
 interface EtapaDoLead {
@@ -34,6 +36,7 @@ interface LeadDoResumo {
   funil_nome: string | null;
   etapa_nome: string | null;
   etapas_do_funil?: EtapaDoLead[];
+  motivos_de_perda_do_funil?: string[];
 }
 
 type AcaoDoCard = "keep" | "move" | "delete";
@@ -72,6 +75,7 @@ export function ArchiveConversationDialog({
   const [acao, setAcao] = useState<AcaoDoCard>("keep");
   const [leadId, setLeadId] = useState("");
   const [stageId, setStageId] = useState("");
+  const [lostReason, setLostReason] = useState(OUTRO);
   const [executando, setExecutando] = useState(false);
   const [segundos, setSegundos] = useState(config.duration_seconds);
   const [contagemPausada, setContagemPausada] = useState(false);
@@ -100,6 +104,11 @@ export function ArchiveConversationDialog({
   const etapas = lead?.etapas_do_funil ?? [];
   const stageIdEfetivo =
     stageId || etapas.find((item) => item.id !== lead?.stage_id)?.id || "";
+  const etapaDeDestino = etapas.find((item) => item.id === stageIdEfetivo) ?? null;
+  const opcoesDePerda = useMemo(
+    () => opcoesDeMotivoDePerda(lead?.motivos_de_perda_do_funil ?? []),
+    [lead?.motivos_de_perda_do_funil],
+  );
 
   useEffect(() => {
     onArchiveRef.current = onArchive;
@@ -184,7 +193,13 @@ export function ArchiveConversationDialog({
           await apiClient.post("/api/v1/leads/bulk", {
             action: "move",
             lead_ids: [lead.id],
-            params: { stage_id: stageIdEfetivo },
+            // A perda sempre recebe um motivo aceito pelo banco. A interface
+            // começa em "Outro", mas deixa o atendente classificá-la nesta
+            // mesma janela quando já souber a razão.
+            params: {
+              stage_id: stageIdEfetivo,
+              ...(etapaDeDestino?.is_lost ? { lost_reason: lostReason } : {}),
+            },
           });
         } else {
           await apiClient.post("/api/v1/leads/bulk", {
@@ -206,7 +221,17 @@ export function ArchiveConversationDialog({
         setExecutando(false);
       }
     },
-    [concluirArquivamento, executarPadrao, lead, limparRelogio, pending, stageIdEfetivo, t],
+    [
+      concluirArquivamento,
+      etapaDeDestino,
+      executarPadrao,
+      lead,
+      limparRelogio,
+      lostReason,
+      pending,
+      stageIdEfetivo,
+      t,
+    ],
   );
 
   useEffect(() => {
@@ -383,6 +408,7 @@ export function ArchiveConversationDialog({
                 onChange={(event) => {
                   setLeadId(event.target.value);
                   setStageId("");
+                  setLostReason(OUTRO);
                 }}
               >
                 {leads.map((item) => (
@@ -400,7 +426,15 @@ export function ArchiveConversationDialog({
                   id="archive-stage"
                   className="h-9 w-full rounded-md border bg-background px-3 text-sm"
                   value={stageIdEfetivo}
-                  onChange={(event) => setStageId(event.target.value)}
+                  onChange={(event) => {
+                    setStageId(event.target.value);
+                    // Toda entrada numa etapa de perda começa no valor seguro
+                    // e opcional. Assim um motivo escolhido para outro card ou
+                    // outra etapa nunca vaza para esta perda.
+                    if (etapas.find((item) => item.id === event.target.value)?.is_lost) {
+                      setLostReason(OUTRO);
+                    }
+                  }}
                 >
                   {etapas
                     .filter((item) => item.id !== lead?.stage_id)
@@ -409,6 +443,23 @@ export function ArchiveConversationDialog({
                         {item.name}
                       </option>
                     ))}
+                </select>
+              </div>
+            )}
+            {acao === "move" && etapaDeDestino?.is_lost && (
+              <div className="space-y-1.5">
+                <Label htmlFor="archive-lost-reason">{t("Motivo")}</Label>
+                <select
+                  id="archive-lost-reason"
+                  className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                  value={lostReason}
+                  onChange={(event) => setLostReason(event.target.value)}
+                >
+                  {opcoesDePerda.map((opcao) => (
+                    <option key={opcao.valor} value={opcao.valor}>
+                      {opcao.doFunil ? opcao.valor : t(rotuloDoMotivoDePerda(opcao.valor))}
+                    </option>
+                  ))}
                 </select>
               </div>
             )}

@@ -377,6 +377,15 @@ pnpm test:journeys  # Playwright com tests/journeys/playwright.config.ts
 pnpm format:check   # prettier
 ```
 
+Antes de investigar uma falha em `test:db`, E2E ou na stack local, confirme que o Docker responde:
+
+```bash
+docker info --format 'Docker ativo: {{.ServerVersion}}'
+```
+
+Se o comando falhar ou não responder em poucos segundos, abra ou reinicie o Docker Desktop antes
+de depurar a aplicação ou o teste.
+
 Um teste só:
 
 ```bash
