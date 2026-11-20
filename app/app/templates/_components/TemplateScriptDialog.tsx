@@ -129,7 +129,7 @@ export function TemplateScriptDialog({
     setNewCategory("");
     setCategoryName("");
     setSteps(
-      template?.kind === "script" && template.steps.length
+      template?.kind === "script" && template.steps?.length
         ? template.steps.map((s) => ({
             key: s.id,
             id: s.id,

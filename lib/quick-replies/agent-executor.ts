@@ -59,7 +59,7 @@ export async function executeAgentQuickReply(
   const [{ data: template }, { data: conversation }, { data: contact }] = await Promise.all([
     supabase
       .from("message_templates")
-      .select("id, title, owner_user_id")
+      .select("id, title, owner_user_id, midias")
       .eq("id", templateId)
       .eq("organization_id", ctx.organizationId)
       .is("owner_user_id", null)
@@ -79,6 +79,9 @@ export async function executeAgentQuickReply(
       .maybeSingle(),
   ]);
   if (!template) return denied("resposta_nao_encontrada_ou_pessoal");
+  if (Array.isArray(template.midias) && template.midias.length) {
+    return denied("resposta_com_anexos_da_barra_requer_revisao");
+  }
   if (!conversation || ["closed", "archived"].includes(conversation.status))
     return denied("conversa_indisponivel");
 
@@ -88,7 +91,8 @@ export async function executeAgentQuickReply(
     .eq("template_id", template.id)
     .eq("organization_id", ctx.organizationId)
     .order("position");
-  if (stepsError || !sourceSteps?.length) throw new Error("quick_reply_steps_unavailable");
+  if (stepsError) throw new Error("quick_reply_steps_unavailable");
+  if (!sourceSteps?.length) return denied("resposta_sem_etapas");
   const steps = sourceSteps as unknown as Step[];
   const waitTotal = totalWaitSeconds(steps);
   if (waitTotal > MAX_AI_QUICK_REPLY_WAIT_SECONDS) return denied("espera_total_acima_de_30_segundos");

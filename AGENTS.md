@@ -2,7 +2,8 @@
 
 > Contrato portável para **qualquer** agente de código (Codex, Cursor, OpenCode, Antigravity, Copilot).
 > Este arquivo é o núcleo. A **doutrina completa e não-negociável vive em [`CLAUDE.md`](CLAUDE.md)** —
-> leia-o antes de tocar em código. O mapa de toda a documentação está em [`docs/index.md`](docs/index.md).
+> leia-o antes de tocar em código. Seções longas dele (testes, migrations, auditoria, WAHA, QA visual)
+> têm o texto integral em [`docs/doctrine/`](docs/doctrine/); lá vale o integral sobre o resumo. O mapa de toda a documentação está em [`docs/index.md`](docs/index.md).
 > Precedência quando dois documentos discordam: `CLAUDE.md` > `docs/specs/` > `docs/prd/` >
 > `HANDOFF-*.md` > `README.md`.
 
@@ -67,8 +68,8 @@ flowchart LR
 ```
 
 Superfícies **não-cookie** (cada uma com guard próprio, nunca o cookie de sessão):
-`app/api/v1/cron/` (Bearer `INTERNAL_CRON_SECRET`, fail-closed), `app/api/internal/`
-(`x-internal-secret`), `app/api/mcp/` (Bearer `dsk_...` contra `api_tokens`), `app/api/v1/webhooks/`
+`app/api/v1/cron/` (Bearer `INTERNAL_CRON_SECRET`, fail-closed),
+`app/api/mcp/` (Bearer `dsk_...` contra `api_tokens`), `app/api/v1/webhooks/`
 (HMAC + path token), e **parte de `app/api/v1/`** — rotas que aceitam cookie OU bearer pelo helper
 `lib/api/auth-dual.ts`. Esta última cresce rota por rota (decisão do dono em 17/09/2026: converter
 o que cada integração precisar), então o inventário é um comando e não uma lista:
@@ -83,7 +84,7 @@ disparar. Entrada do turno em `lib/agent-engine/agent/inbound-turn.ts`; diagrama
 | Path | O quê |
 |---|---|
 | `app/api/v1/` | Route handlers REST (versionado por path) — **reconte, não cite**: `git ls-files 'app/api/v1/**/route.ts' \| wc -l` (e `git ls-files 'app/api/**/route.ts' \| wc -l` para o total de `app/api/**`) |
-| `app/api/internal/`, `app/api/mcp/`, `app/api/v1/cron/` | superfícies não-cookie (secret/bearer próprio) |
+| `app/api/mcp/`, `app/api/v1/cron/` | superfícies não-cookie (secret/bearer próprio) |
 | `app/app/` | UI autenticada do tenant · `app/admin/` UI de plataforma |
 | `app/actions/` | Server Actions (auth, onboarding, team, settings) |
 | `lib/agent-engine/`, `lib/ai/` | runtime do agente, guardrails, RAG, dispatcher |
@@ -208,6 +209,7 @@ cite cada um:
 | ----------------------------------------------------------------------------------- | ----------------------- |
 | Instalar, atualizar ou consertar a instalação numa VPS; domínio, Supabase, WhatsApp | `deskcomm-instalar`     |
 | Usar o CRM no dia a dia; encontrar telas, fluxos e configurações pela interface     | `deskcomm-operacao`     |
+| Atualizar aulas, traduções e capturas do curso com as mudanças do produto           | `deskcomm-curso`        |
 | Configurar o CRM para um cliente ou nicho: agentes, roteadores, follow-ups, base    | `deskcomm-cliente-novo` |
 | Revender como SaaS: planos, cobrança pela Stripe ou Asaas, régua, contrato          | `deskcomm-saas`         |
 | Desempenho, conversão, custo de IA, funil, relatório                                | `deskcomm-metricas`     |
@@ -240,7 +242,8 @@ if (!authz.ok) return authz.response;
 ```
 
 **Erros** — `fail(code, message, status)` com código de `lib/api/errors.ts`. Nunca `throw` cru na
-borda. Cada response leva `X-Request-Id`, correlacionado com o audit log.
+borda. Toda resposta de `ok()`/`fail()` leva o `X-Request-Id`, e é o mesmo do registro e da auditoria;
+as rotas que montam resposta à mão estão sendo migradas (issue #4107).
 
 **Nomes e dados** — arquivos e símbolos em PT-BR são a norma (mantenha o idioma do arquivo que
 editar). JSON da API em **snake_case**; dinheiro em `_cents` + `currency`; datas ISO-8601 UTC;
@@ -291,7 +294,8 @@ o controlador (`organizations.legal_name`) e o DPO.
 - **`docker-compose.traefik.yml`** — numa VPS que já tem proxy reverso próprio
   (Hostinger, Coolify, Dokploy…), é o único lugar que dá ao contêiner `app` as labels
   de roteamento. Todo `up -d` leva os **dois** arquivos de compose:
-**Anti-patterns proibidos** — string que deveria ser FK; duplicação sem source of truth declarado;
+**Anti-patterns proibidos** — string que deveria ser FK (lista `uuid[]` pequena, lida junto com a
+linha e conferida no handler é exceção escrita em `CLAUDE.md`, seção Modelagem); duplicação sem source of truth declarado;
 feature nomeando um provider de canal (gate `pnpm lint:channels`); tela nova sem porta declarada em
 `lib/navigation/registry.ts` (gate `tests/unit/navegacao-completude.test.ts`); `getSession()` no
 server; segredo em query string; `throw` cru na borda da API.
@@ -452,7 +456,7 @@ itens envelhecem em ritmos diferentes, e o cabeçalho passava a mentir por todos
   inclusive. O número e a contagem que ficavam aqui eram de uma fotografia de agosto.
 - Rate limit HTTP: `lib/auth/rate-limit.ts` cobre **login, signup, recuperação de senha e
   aceite de convite** (contando por IP **e** por identificador hasheado); `checkRateLimit` cobre
-  o webhook de captação e o dispatcher de IA. **Crons seguem sem.** O MCP conta em dois pontos:
+  o webhook de captação e outros pontos de `app/` e `lib/` (a régua abaixo lista). **Crons seguem sem.** O MCP conta em dois pontos:
   a recusa de token, antes da autenticação (`lib/mcp/auth.ts`, #1449), e o teto de chamadas de
   token válido — por token, por organização e de escrita, Spec 11 §7 (`lib/mcp/rate-limit.ts`,
   #1446). Meça antes de agir:
@@ -556,6 +560,7 @@ casar, mesmo que a pessoa não saiba que ele existe. Fora de um clone (ou num cl
 | configurar o CRM para um cliente ou nicho: agentes, roteadores, follow-ups, base de conhecimento | `deskcomm-cliente-novo` |
 | revender como SaaS: painel do dono, planos, cobrança pela Stripe ou pelo Asaas, régua, contrato com o cliente final | `deskcomm-saas` |
 | desempenho, conversão, custo de IA, funil, relatório | `deskcomm-metricas` |
+| atualizar aulas, traduções e capturas do curso com as mudanças do produto | `deskcomm-curso` |
 | o agente responde errado, passa tudo para humano, não usa a agenda; melhorar o prompt | `deskcomm-prompt` |
 | contribuir: corrigir bug, abrir ou atualizar PR, migration, conflito com a `main` | `deskcomm-contribuir` — que fica quieto quando `bash .agents/skills/deskcomm-contribuir/scripts/quem-sou.sh` responde `mantenedor` |
 | escrever ou revisar código aqui | `deskcomm-doutrina` (as três regras que mais custam) e `sistema-vivo` (o gate de arquitetura) |

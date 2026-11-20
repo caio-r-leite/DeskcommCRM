@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
+import { CabecalhoDaSubTela } from "@/components/settings/CabecalhoDaSubTela";
 import { requireAuth, resolveActiveOrg } from "@/lib/auth/server";
 import { ROLE_RANK } from "@/lib/auth/types";
 import { moduloLigado } from "@/lib/instalacao/modulos";
@@ -11,7 +12,9 @@ import {
   type EtapaDaEntradaAutomatica,
   type FunilDaEntradaAutomatica,
 } from "./_automatic-entry";
+import { BlueprintDeFunis } from "./_blueprint-de-funis";
 import { traduzir } from "@/lib/i18n/dicionario";
+import { entradaDoInboxDeclarada } from "@/lib/leads/entrada-do-inbox";
 
 export const dynamic = "force-dynamic";
 
@@ -41,7 +44,7 @@ export default async function PipelinesSettingsPage() {
   const supabase = await createClient();
   const { data } = await supabase
     .from("crm_pipelines")
-    .select("id, name, slug, vocabulary, settings, is_default, entry_stage_id")
+    .select("id, name, slug, vocabulary, settings, is_default, is_client_pipeline, entry_stage_id")
     .eq("organization_id", activeOrg.orgId)
     .eq("is_archived", false)
     .order("position");
@@ -52,6 +55,10 @@ export default async function PipelinesSettingsPage() {
   // sem elas a tela não tem o que oferecer como "exigir ao entrar aqui". A
   // leitura é a mesma da página (mesmo cliente, mesma organização) e vem PRONTA
   // do servidor: o editor não espera rede nenhuma para renderizar.
+  //
+  // `is_won`/`is_lost` entram POR CAUSA DA ENTRADA DO INBOX (#3011): card novo
+  // não nasce em "Ganho", então a tela precisa saber quais etapas são de
+  // FECHAMENTO para não oferecê-las como etapa de entrada.
   const { data: etapas } = await supabase
     .from("crm_stages")
     .select("id, pipeline_id, name, is_archived, is_won, is_lost")
@@ -69,10 +76,7 @@ export default async function PipelinesSettingsPage() {
 
   return (
     <div className="flex h-full flex-col gap-6 p-6">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">
-          {traduzir("Etapas do funil", idioma)}
-        </h1>
+      <CabecalhoDaSubTela titulo={traduzir("Etapas do funil", idioma)} idioma={idioma}>
         <p className="text-sm text-muted-foreground">
           {traduzir("Para onde o agente leva o card em cada passo do atendimento", idioma)}
           {podeEditarConfig
@@ -80,9 +84,16 @@ export default async function PipelinesSettingsPage() {
             : ""}
           .
         </p>
-      </header>
+      </CabecalhoDaSubTela>
+      {/* Exportar/importar (#1995): manager+, a mesma régua desta página. Fica
+          fora de `PipelinesClient` porque a organização sem funil é justamente
+          quem mais precisa de importar. */}
+      <BlueprintDeFunis />
       <EntradaAutomatica
-        pipelines={pipelines as Array<PipelineRow & FunilDaEntradaAutomatica>}
+        pipelines={pipelines.map((pipeline) => {
+          const entrada = entradaDoInboxDeclarada(pipeline.settings);
+          return { ...pipeline, entry_stage_id: entrada.ativa ? entrada.stage_id : null };
+        }) as FunilDaEntradaAutomatica[]}
         etapas={etapasPorFunil}
       />
       <PipelinesClient

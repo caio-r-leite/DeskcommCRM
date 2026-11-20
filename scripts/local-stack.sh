@@ -7,6 +7,12 @@ cd "$ROOT_DIR"
 ENV_FILE="${LOCAL_ENV_FILE:-.env.local}"
 COMPOSE=(docker compose -f docker-compose.local.yml --env-file "$ENV_FILE")
 
+if [[ "$(uname -s)/$(uname -m)" == "Darwin/arm64" ]] && \
+   [[ -z "${WAHA_LOCAL_IMAGE:-}" && -z "${WAHA_LOCAL_PLATFORM:-}" ]]; then
+  export WAHA_LOCAL_IMAGE="devlikeapro/waha:noweb-arm-2026.7.2"
+  export WAHA_LOCAL_PLATFORM="linux/arm64"
+fi
+
 usage() {
   printf 'Uso: %s {up|down|restart|status|logs|supabase-status|reset}\n' "$0"
 }

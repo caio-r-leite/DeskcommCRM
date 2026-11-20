@@ -2,7 +2,9 @@
  * POST /api/v1/cobranca/assinatura/checkout — o botão "Assinar" (spec da
  * cobrança do revendedor §7b). As três fases moram em `lib/cobranca/checkout.ts`,
  * que o "Gerar link de pagamento" do dono também usa. Aqui: sessão, módulo,
- * `Idempotency-Key` e corpo. O e-mail do cliente no provedor é o de quem clicou.
+ * `Idempotency-Key` e corpo. O e-mail do cliente no provedor é o do admin da
+ * empresa (`emailDoAdminDaEmpresa`), como na porta do dono: quem clica pode ser o
+ * dono, admin provisório da empresa que criou, e o e-mail fica no provedor.
  * Empresa suspensa também assina (o hub leva aqui). A org vem da sessão.
  */
 import { randomUUID } from "node:crypto";
@@ -14,16 +16,21 @@ import { chaveDaRequisicao } from "@/lib/api/idempotency";
 import { fail, ok } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
 import { gerarLinkDePagamento } from "@/lib/cobranca/checkout";
-import { urlDoHub, urlDoPainelDaEmpresa } from "@/lib/cobranca/url";
+import { lerIntencaoDeContratacao } from "@/lib/cobranca/contratacao";
+import { emailDoAdminDaEmpresa } from "@/lib/cobranca/emails";
+import { urlDaContratacao, urlDoHub, urlDoPainelDaEmpresa } from "@/lib/cobranca/url";
 import { requireSupportWrite } from "@/lib/impersonate/support";
 import { moduloLigado } from "@/lib/instalacao/modulos";
+import { logger } from "@/lib/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
 const corpoSchema = z.strictObject({
   /** Só um destino nomeado (nunca uma URL livre: sem redirecionamento aberto). */
-  volta: z.enum(["hub"]).optional(),
+  volta: z.enum(["hub", "contratacao"]).optional(),
+  /** Autoprosseguimento só com intenção auditada e revalidada nesta sessão/org. */
+  continuar_cadastro: z.boolean().optional(),
   /** CPF ou CNPJ de quem paga, com ou sem máscara. Vai direto ao provedor e NÃO é guardado (spec §2.3, LGPD). */
   documento: z.string().max(32).optional(),
 });
@@ -43,15 +50,44 @@ export async function POST(req: NextRequest) {
   const corpo = corpoSchema.safeParse(await req.json().catch(() => ({})));
   if (!corpo.success) return fail("validation_failed", "Pedido inválido.", 400, { requestId, details: corpo.error.flatten() });
 
+  let planoDaIntencao: string | undefined;
+  if (corpo.data.continuar_cadastro === true) {
+    try {
+      const intencao = await lerIntencaoDeContratacao(admin, authz.user.id, authz.org.orgId);
+      if (!intencao) return fail("state_conflict", "Confira seu plano e continue para o pagamento.", 409, { requestId });
+      planoDaIntencao = intencao.planoId;
+    } catch (e) {
+      logger.warn("cobranca.checkout.intencao_indisponivel", { requestId, organizationId: authz.org.orgId, erro: e instanceof Error ? e.message : "desconhecido" });
+      return fail("unavailable", "Não foi possível retomar sua contratação. Tente novamente.", 503, { requestId });
+    }
+  }
+
+  let email: string | null;
+  try {
+    email = await emailDoAdminDaEmpresa(admin, authz.org.orgId);
+  } catch (e) {
+    // Só o código do PostgREST/Auth, nunca o endereço (`lib/cobranca/emails.ts`).
+    logger.error("cobranca: admins da empresa ilegíveis no Assinar", {
+      requestId,
+      organizationId: authz.org.orgId,
+      motivo: e instanceof Error ? e.message : "desconhecido",
+    });
+    return fail("internal_error", "Não foi possível ler os administradores da empresa.", 500, { requestId });
+  }
+
   const r = await gerarLinkDePagamento(admin, {
     orgId: authz.org.orgId,
     documentoBruto: corpo.data.documento,
-    email: authz.user.email,
+    email,
+    // A intenção só PROVA o direito de continuar; a chave é a do clique
+    // (`lib/api/client.ts`). Fixar o nonce reaproveitaria por 7 dias a sessão
+    // de checkout que o provedor já expirou.
     chaveIdempotencia: chave ?? randomUUID(),
-    urlDeVolta: corpo.data.volta === "hub" ? urlDoHub() : urlDoPainelDaEmpresa(),
+    urlDeVolta: corpo.data.volta === "contratacao" ? urlDaContratacao() : corpo.data.volta === "hub" ? urlDoHub() : urlDoPainelDaEmpresa(),
     actorUserId: authz.user.id,
     requestId,
     comoDono: false,
+    planoEsperado: planoDaIntencao,
   });
   if (r.ok) return ok({ url: r.url }, { requestId });
   return fail(r.code, r.message, r.status, {

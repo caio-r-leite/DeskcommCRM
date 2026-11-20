@@ -3,9 +3,9 @@
 import { useLocaleDeData } from "@/hooks/i18n/useLocaleDeData";
 
 import type { Locale } from "date-fns";
-import { format, formatDistanceToNowStrict } from "date-fns";
+import { formatDistanceToNowStrict } from "date-fns";
 import { useT } from "@/hooks/i18n/useT";
-import { Check, Robot } from "@/lib/ui/icons";
+import { Check, Robot, Sparkle } from "@/lib/ui/icons";
 import { ChannelLogo } from "@/components/inbox/ChannelLogo";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -14,14 +14,21 @@ import { OwnerBadge } from "@/components/kanban/OwnerBadge";
 import {
   comandoDaConversa,
   esperaDaConversa,
+  rotuloDaEspera,
   ROTULO_DO_COMANDO,
   STATUS_ENCERRADOS,
 } from "@/lib/inbox/comando-da-conversa";
 import { cn } from "@/lib/utils";
 import type { ConversationWithContact } from "@/hooks/inbox/useConversationsRealtime";
-import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
+import { rotuloParaAEquipe } from "@/lib/contacts/rotulo-do-contato";
 import { phoneForDisplay } from "@/lib/channels/phone-variants";
 import { rotuloDoCanalDaConversa } from "@/lib/channels/estado";
+/**
+ * A régua do "quando" mora em `lib/i18n/hora-curta.ts` desde que o card do funil
+ * precisou da MESMA resposta para a última mensagem do negócio. Aqui ela era
+ * privada; duas cópias divergiriam no primeiro ajuste.
+ */
+import { horaCurta as relativeTime } from "@/lib/i18n/hora-curta";
 
 interface Props {
   conversation: ConversationWithContact;
@@ -74,6 +81,28 @@ interface Props {
    * conversa, e quem abre não marca.
    */
   onAlternarSelecao?: (id: string) => void;
+  /**
+   * Marca (ou desmarca) ESTA conversa como exemplo para o agente aprender
+   * (#3006). Presente = a linha monta o controle; AUSENTE = a linha é
+   * exatamente a que era, sem controle nenhum e sem selo — é o que mantém os
+   * testes que renderizam a linha sozinha, e a lista que não oferece a ação.
+   *
+   * A CHAMADA À ROTA NÃO MORA AQUI, e isso é de propósito. Vem por prop, como
+   * o `automaticoDaOrg`: uma resposta por lista, não por linha — e, medido, a
+   * linha é renderizada sem `QueryClientProvider` em vários testes do repo, o
+   * que faria um `useQueryClient()` aqui dentro derrubar todos eles com "No
+   * QueryClient set". Quem faz o `POST .../usable-for-rag` é a lista.
+   */
+  onAlternarExemplo?: (id: string, enabled: boolean) => void;
+  /**
+   * Esta conversa tem uma menção PENDENTE para quem está olhando a lista
+   * (#2372). Vem da lista (uma marca só, compartilhada) e não de hook por
+   * linha, pela mesma razão do `automaticoDaOrg`.
+   *
+   * Ausente = sem marca, e é o default de todo teste que renderiza a linha
+   * sozinha: o selo só aparece com `true` porque afirmar o contrário seria pior.
+   */
+  mencionado?: boolean;
 }
 
 /**
@@ -109,16 +138,6 @@ function initials(name: string | null | undefined, fallback: string): string {
   return (first + last).toUpperCase();
 }
 
-function relativeTime(iso: string | null, locale: Locale): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  const now = new Date();
-  const sameDay = d.toDateString() === now.toDateString();
-  if (sameDay) return format(d, "HH:mm");
-  const diff = (now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24);
-  if (diff < 7) return formatDistanceToNowStrict(d, { addSuffix: false, locale: locale });
-  return format(d, "dd/MM");
-}
 
 /**
  * "Aguardando há 5 min" — desde quando o cliente ESPERA.
@@ -133,9 +152,10 @@ function waitingLabel(
   conversation: ConversationWithContact,
   t: (texto: string) => string = (texto) => texto, locale: Locale,
 ): string {
-  const since = esperaDaConversa(conversation);
-  if (!since) return t("Aguardando");
-  return `${t("Aguardando")} ${formatDistanceToNowStrict(new Date(since), { addSuffix: true, locale: locale })}`;
+  // O texto mora em `rotuloDaEspera`, ao lado da régua (`esperaDaConversa`):
+  // enquanto ele era escrito aqui, privado, a pílula só podia ser provada
+  // renderizando a linha inteira — e a #990 ficou sem teste vermelho por isso.
+  return rotuloDaEspera(esperaDaConversa(conversation), new Date(), t, locale);
 }
 
 export function ConversationListItem({
@@ -149,11 +169,13 @@ export function ConversationListItem({
   automaticoDaOrg,
   selecionado = false,
   onAlternarSelecao,
+  onAlternarExemplo,
+  mencionado = false,
 }: Props) {
   const localeDaData = useLocaleDeData();
   const t = useT();
   const c = conversation.contacts ?? null;
-  const displayName = rotuloDoContato(c, t);
+  const displayName = rotuloParaAEquipe(c, t);
   const phoneFallback = c?.phone_number ? phoneForDisplay(c.phone_number) : "??";
   // A ficha edita etiquetas em duas caixas legítimas: conversa e contato. O
   // card mostra a união das duas, como o próprio filtro da Inbox já faz.
@@ -167,6 +189,7 @@ export function ConversationListItem({
   ].filter(Boolean);
   const visibleTags = tags.slice(0, 3);
   const overflow = tags.length - visibleTags.length;
+  const hiddenTags = tags.slice(2);
   const preview = conversation.last_message_preview?.trim() || t("Sem mensagens");
   const truncated = preview.length > 60 ? `${preview.slice(0, 60)}…` : preview;
   const naFila = queuePosition !== undefined;
@@ -213,6 +236,9 @@ export function ConversationListItem({
     is_blocked: c?.is_blocked ?? null,
     is_group: conversation.is_group ?? false,
     automaticoDaOrg,
+    // O fato por NÚMERO (#4012) vem no próprio registro — nada de uma consulta
+    // por linha. Ausente em cache antigo, e aí a regra cai no org-wide.
+    automaticoDaConversa: conversation.automatico_da_conversa ?? undefined,
   });
   const isAi = comando.quem === "automatico";
   const dot = COR_DO_COMANDO[comando.quem] ?? COR_DO_COMANDO.ninguem;
@@ -244,8 +270,22 @@ export function ConversationListItem({
   const canal = conversation.channel_sessions ?? null;
   const rotuloCanal = rotuloDoCanalDaConversa(canal, t);
 
+  /**
+   * A CONVERSA MARCADA COMO EXEMPLO PARA O AGENTE (#3006).
+   *
+   * `usable_for_rag` é a coluna que a rota `usable-for-rag` liga; quem a traz
+   * para cá é o `SELECT_COLS` da lista. Os dois rótulos são literais `t()`
+   * separados — a cerca de espanhol cobra chave por chave, e uma escolha
+   * ternária dentro do `t()` ficaria invisível para ela.
+   */
+  const exemploMarcado = Boolean(conversation.usable_for_rag);
+  const rotuloExemplo = exemploMarcado
+    ? t("Deixar de usar como exemplo")
+    : t("Usar como exemplo para a IA");
+
   const temSelos =
     visibleTags.length > 0 ||
+    exemploMarcado ||
     (mostrarAtendente && comando.quem === "humano") ||
     (mostrarCanal && rotuloCanal != null) ||
     Boolean(c?.is_blocked) ||
@@ -277,7 +317,7 @@ export function ConversationListItem({
             "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent",
             selecionado
               ? "border-accent bg-accent text-accent-foreground"
-              : "border-input bg-background hover:bg-surface-elevated",
+              : "border-muted-foreground bg-background hover:bg-surface-elevated",
           )}
         >
           {selecionado && <Check size={12} weight="bold" aria-hidden />}
@@ -290,9 +330,17 @@ export function ConversationListItem({
         className={cn(
           "group relative flex min-w-0 flex-1 items-start gap-3 px-3 py-2.5 text-left transition-colors hover:bg-surface-elevated",
           "focus-visible:outline-hidden focus-visible:bg-surface-elevated",
-          // `accent-50` permanece claro no tema escuro e apagava o nome claro.
-          // O papel semântico `accent-soft` acompanha o tema e preserva contraste.
-          isSelected && "bg-accent-soft hover:bg-accent-soft",
+          // `accent-soft`, e não um degrau fixo da rampa: os degraus têm o MESMO
+          // hex nos dois temas, e o `accent-50` (quase branco) no escuro deixava o
+          // nome — `text-text`, claro no escuro — branco sobre branco.
+          // Marcada no lote, quem pinta é o wrapper: no escuro o `accent-soft` é
+          // translúcido, e pintar os dois o somava (prévia a 3,2:1). O botão fica
+          // transparente também no hover/foco, senão o cinza do hover cobria só ele
+          // e a linha ficava em dois tons; o foco vira anel, como o da caixa.
+          isSelected &&
+            (selecionado
+              ? "hover:bg-transparent focus-visible:bg-transparent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+              : "bg-accent-soft hover:bg-accent-soft"),
         )}
         aria-current={isSelected ? "true" : undefined}
       >
@@ -366,9 +414,29 @@ export function ConversationListItem({
                 {t("Grupo")}
               </Badge>
             )}
+            {/*
+              O SELO "MENCIONADO" (#2372), ao lado do nome.
+
+              O sino e o push dizem que houve menção; a lista precisa dizer ONDE,
+              e a hora do canto não ajuda. Fica antes das etiquetas porque não é
+              classificação do contato — é um recado pendente para QUEM ESTÁ
+              OLHANDO, e some no clique que abre a conversa (`ConversationList`).
+              `default` já usa fundo `accent-soft` + texto `accent`: o par que o
+              selo de exemplo usa no escuro e no claro.
+            */}
+            {mencionado && (
+              <Badge
+                variant="default"
+                data-testid="selo-mencionado"
+                title={t("Você foi mencionado")}
+                className="h-4 shrink-0 gap-1 px-1.5 text-[10px] font-normal"
+              >
+                {t("Mencionado")}
+              </Badge>
+            )}
           </span>
           <span
-            className="shrink-0 text-[11px] tabular-nums text-text-subtle"
+            className="shrink-0 text-[11px] tabular-nums text-text-muted"
             // O mesmo lugar da tela mostra duas coisas diferentes conforme a aba:
             // na Fila é "desde quando o cliente ESPERA" (a mensagem mais antiga sem
             // resposta — #990), nas outras é "há quanto tempo a conversa mexeu". O
@@ -383,7 +451,9 @@ export function ConversationListItem({
           <p
             className={cn(
               "min-w-0 truncate text-[13px]",
-              unread > 0 ? "text-text" : "text-text-muted",
+              // Na aberta, `text-text`: `text-muted` sobre o `accent-soft` do
+              // escuro dá 4,2:1, abaixo do AA (medido em selecionada-legivel-no-escuro.test).
+              unread > 0 || isSelected ? "text-text" : "text-text-muted",
             )}
           >
             {isAi && mostrarAutomatico ? (
@@ -400,11 +470,25 @@ export function ConversationListItem({
 
         {temSelos && (
           <div className="mt-1.5 flex flex-wrap items-center gap-1">
+            {/* O SELO DO EXEMPLO vem ANTES das etiquetas de propósito: a faixa
+                mostra no máximo 2 etiquetas e as que sobram viram "+N". Um
+                estado que decide se a conversa entra na base de conhecimento
+                do agente não pode ser o primeiro a ser cortado. */}
+            {exemploMarcado && (
+              <Badge
+                variant="outline"
+                data-testid="selo-exemplo-ia"
+                className="h-4 gap-1 px-1.5 text-[10px] font-normal text-accent"
+              >
+                <Sparkle size={10} weight="fill" aria-hidden />
+                {t("Exemplo para a IA")}
+              </Badge>
+            )}
             {visibleTags.map((t) => (
               <ChipDeEtiqueta key={t} tag={t} className="h-4 px-1.5 text-[10px]" />
             ))}
             {overflow > 0 && (
-              <span className="text-[10px] text-text-muted">+{overflow}</span>
+              <span className="text-[10px] text-text-muted" title={hiddenTags.join(", ")}>+{overflow}</span>
             )}
             {mostrarAtendente && comando.quem === "humano" && (
               <OwnerBadge ownerKind="user" ownerName={comando.nome ?? t("Atendente")} compacto />
@@ -437,6 +521,42 @@ export function ConversationListItem({
         )}
       </div>
       </button>
+      {/*
+        O CONTROLE DE "EXEMPLO PARA A IA" (#3006) fica FORA do botão da linha,
+        como a caixa de seleção logo acima e pelo mesmo motivo: controle
+        interativo dentro de `<button>` é HTML inválido, e marcar não pode abrir
+        a conversa. O gesto de marcar é separado do gesto de abrir.
+
+        Fica sempre visível, e não só no hover: o defeito que esta issue
+        conserta é justamente um recurso que ninguém achava. Um ícone que só
+        aparece sob o cursor continuaria escondido no celular, onde não há
+        hover — e o alvo de toque é maior do que o desenho sugere.
+
+        Desmarcado usa `text-text-muted`, não `text-text-subtle`: é componente
+        gráfico e precisa de 3:1 contra o fundo da linha. Medido na prova de
+        tela, subtle dava 2,81:1 no escuro (#605e54 sobre #161510). Muted, no
+        pior fundo de cada tema (linha selecionada, `bg-accent-soft`): 5,74:1 no
+        claro (#5d594f sobre #e4ebe0) e 4,23:1 no escuro (#8e8b7f sobre #272b20).
+      */}
+      {onAlternarExemplo && (
+        <button
+          type="button"
+          data-testid={`exemplo-ia-${conversation.id}`}
+          aria-pressed={exemploMarcado}
+          aria-label={rotuloExemplo}
+          title={rotuloExemplo}
+          onClick={() => onAlternarExemplo(conversation.id, !exemploMarcado)}
+          className={cn(
+            "mr-1 mt-2.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm transition-colors",
+            "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent",
+            exemploMarcado
+              ? "text-accent hover:bg-accent-soft"
+              : "text-text-muted hover:bg-surface-elevated hover:text-text",
+          )}
+        >
+          <Sparkle size={14} weight={exemploMarcado ? "fill" : "regular"} aria-hidden />
+        </button>
+      )}
     </div>
   );
 }

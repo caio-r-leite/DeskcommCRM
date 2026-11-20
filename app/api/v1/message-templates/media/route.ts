@@ -12,6 +12,7 @@ import { validateOutboundMedia } from "@/lib/messaging/media/upload-validation";
 import { createMediaTemplateSchema } from "@/lib/schemas/templates";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { grupoDaOrganizacao } from "@/lib/templates/grupo-da-resposta";
 
 export const dynamic = "force-dynamic";
 
@@ -59,6 +60,17 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (parsed.data.shared && !roleAtLeast(org.role, "manager")) {
     return fail("forbidden", t("Só manager+ cria template compartilhado."), 403, { requestId });
   }
+  const supabase = await createClient();
+  try {
+    if (!(await grupoDaOrganizacao(supabase, org.orgId, parsed.data.grupo_id))) {
+      return fail("validation_failed", t("Dados inválidos."), 422, {
+        requestId,
+        details: { grupo_id: [t("Grupo que não pertence a esta organização.")] },
+      });
+    }
+  } catch {
+    return fail("internal_error", t("Erro ao criar template."), 500, { requestId });
+  }
 
   const mime = file.type || "application/octet-stream";
   const verdict = validateOutboundMedia(mime, file.size);
@@ -92,12 +104,13 @@ export async function POST(req: NextRequest): Promise<Response> {
       .replace(/[\u0000-\u001f\u007f]/g, "")
       .trim()
       .slice(0, 255) || `arquivo.${extFromMime(mime)}`;
-  const supabase = await createClient();
   const { data, error } = await supabase
     .from("message_templates")
     .insert({
       organization_id: org.orgId,
       owner_user_id: parsed.data.shared ? null : user.id,
+      grupo_id: parsed.data.grupo_id ?? null,
+      ...(parsed.data.mostrar_na_barra === undefined ? {} : { mostrar_na_barra: parsed.data.mostrar_na_barra }),
       title: parsed.data.title,
       body: parsed.data.body,
       shortcut: parsed.data.shortcut ?? null,

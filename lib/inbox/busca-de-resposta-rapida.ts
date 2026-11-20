@@ -25,7 +25,7 @@ export function respostaRapidaCorresponde(template: MessageTemplate, query: stri
       template.body,
       template.media_filename,
       template.category?.name,
-      ...template.steps.flatMap((step) => [step.body, step.media_filename]),
+      ...(template.steps ?? []).flatMap((step) => [step.body, step.media_filename]),
     ]
       .filter(Boolean)
       .join(" "),

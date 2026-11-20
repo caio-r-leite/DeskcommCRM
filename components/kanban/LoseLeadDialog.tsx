@@ -15,7 +15,11 @@ import { Label } from "@/components/ui/label";
 import { useLoseLead } from "@/hooks/kanban/useUpdateLead";
 import { useMotivosDePerdaDoFunil } from "@/hooks/kanban/useMotivosDePerdaDoFunil";
 import { rotuloDoMotivoDePerda } from "@/lib/schemas/leads";
-import { OUTRO, motivoDePerdaAceito, opcoesDeMotivoDePerda } from "@/lib/leads/motivos-de-perda-do-funil";
+import {
+  OUTRO,
+  motivoDePerdaAceito,
+  opcoesDeMotivoDePerda,
+} from "@/lib/leads/motivos-de-perda-do-funil";
 
 interface LoseLeadDialogProps {
   open: boolean;
@@ -40,6 +44,12 @@ interface LoseLeadDialogProps {
    * clicável durante a escrita e um segundo clique dobraria o lote.
    */
   submitting?: boolean;
+  /** Depois de a perda gravar — para quem mora fora do quadro (ex.: painel da conversa) recarregar o que mostra. */
+  onPerdido?: () => void;
+  /** Motivos do funil quando o quadro não está em cache (painel da conversa); sem isto, lê do cache do quadro. */
+  motivos?: string[];
+  /** Identifica o negócio na confirmação individual; omitido no lote. */
+  leadLabel?: string;
 }
 
 const MAX_LEN = 500;
@@ -51,6 +61,9 @@ export function LoseLeadDialog({
   pipelineId,
   onConfirm,
   submitting = false,
+  onPerdido,
+  motivos,
+  leadLabel,
 }: LoseLeadDialogProps) {
   const t = useT();
   const [reasonCode, setReasonCode] = useState<string>("");
@@ -62,7 +75,8 @@ export function LoseLeadDialog({
 
   // O funil deste card manda na lista: o que ele tem cadastrado substitui o
   // padrão do produto — ver lib/leads/motivos-de-perda-do-funil.ts.
-  const cadastrados = useMotivosDePerdaDoFunil(pipelineId);
+  const doQuadro = useMotivosDePerdaDoFunil(pipelineId);
+  const cadastrados = motivos ?? doQuadro;
   const opcoes = useMemo(() => opcoesDeMotivoDePerda(cadastrados), [cadastrados]);
   const funilConfigurado = cadastrados.length > 0;
 
@@ -96,9 +110,7 @@ export function LoseLeadDialog({
   // texto do "Detalhe" NUNCA era aceito pelo servidor, e a pessoa só descobria
   // depois de já ter clicado "Confirmar".
   const outroRecusado =
-    reasonCode === OUTRO &&
-    textoOutro.length > 0 &&
-    !motivoDePerdaAceito(textoOutro, cadastrados);
+    reasonCode === OUTRO && textoOutro.length > 0 && !motivoDePerdaAceito(textoOutro, cadastrados);
 
   const finalReason = reasonCode === OUTRO ? textoOutro || OUTRO : reasonCode;
   const disabled =
@@ -125,6 +137,7 @@ export function LoseLeadDialog({
       setReasonCode("");
       setOtherText("");
       onOpenChange(false);
+      onPerdido?.();
     } catch {
       // error already toasted
     }
@@ -136,6 +149,7 @@ export function LoseLeadDialog({
         <DialogHeader>
           <DialogTitle>{t("Marcar como perdido")}</DialogTitle>
           <DialogDescription>
+            {leadLabel && <span className="mb-1 block font-medium">{leadLabel}</span>}
             {t("Informe o motivo. Essa informação ajuda a melhorar o funil.")}
           </DialogDescription>
         </DialogHeader>
@@ -161,9 +175,7 @@ export function LoseLeadDialog({
           </div>
           {reasonCode === OUTRO && (
             <div className="grid gap-1.5">
-              <Label htmlFor="lost-reason-other">
-                {t("Detalhe (opcional)")}
-              </Label>
+              <Label htmlFor="lost-reason-other">{t("Detalhe (opcional)")}</Label>
               <Textarea
                 id="lost-reason-other"
                 value={otherText}
@@ -201,7 +213,9 @@ export function LoseLeadDialog({
               */}
               {(funilConfigurado || outroRecusado) && (
                 <p className="text-xs text-muted-foreground">
-                  {t("Para usar um motivo que não está aqui, cadastre em Configurações › Funis.")}
+                  {t(
+                    "Para usar um motivo que não está aqui, cadastre em CRM › Ver tudo em CRM › Etapas do funil.",
+                  )}
                 </p>
               )}
             </div>
@@ -209,11 +223,7 @@ export function LoseLeadDialog({
         </div>
 
         <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={emVoo}
-          >
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={emVoo}>
             {t("Cancelar")}
           </Button>
           <Button onClick={handleSubmit} disabled={disabled}>

@@ -29,6 +29,8 @@
  */
 import { z } from "zod";
 
+import { ORIGEM_PADRAO, ORIGENS_DO_JEV } from "./origem";
+
 import type { createAdminClient } from "@/lib/supabase/admin";
 
 export const ESTADOS_DA_TAREFA = ["observando", "decidindo", "desligada"] as const;
@@ -88,6 +90,25 @@ export const configDoJevSchema = z
     /** Instalações existentes continuam comparando até o admin escolher o modo independente. */
     modo_roteador: z.enum(["comparacao", "sob_demanda"]).default("comparacao"),
     /**
+     * DE ONDE O JEV RESPONDE (`./origem`): a TypeSafe direto, ou via OpenRouter
+     * reaproveitando a credencial OpenRouter da organização. Ausente é o caminho
+     * de sempre — a instalação que nunca escolheu nada não muda de
+     * comportamento. Um valor desconhecido (versão mais nova) cai no padrão: o
+     * `z.enum` recusa a config inteira, e o leitor devolve `DESLIGADO`.
+     */
+    origem: z.enum(ORIGENS_DO_JEV).default(ORIGEM_PADRAO),
+    /**
+     * O MODELO do decisor (`./modelo`), escolhido pelo administrador. Ausente é
+     * o Jev — quem nunca abriu a tela não muda de comportamento.
+     *
+     * Só vale com a origem `openrouter`: os outros modelos de decisão são
+     * servidos por ela, e a chave da TypeSafe não serve para eles
+     * (`modeloDaChamada`). Um valor ilegível é DESCARTADO, e não a config
+     * inteira: um id torto não pode desligar o Jev de quem já o tinha ligado —
+     * ao contrário do `origem`, que é enum fechado e escolhe a credencial.
+     */
+    modelo: z.string().trim().min(1).max(120).optional().catch(undefined),
+    /**
      * Quem aceitou mandar a mensagem ao fornecedor estrangeiro, e quando.
      * `alcance` ausente é o aceite da onda 1: cada mensagem, sozinha. Aceite
      * ilegível é aceite nenhum — a config inteira cai no desligado.
@@ -117,7 +138,13 @@ export const configDoJevSchema = z
 
 export type ConfigDoJev = z.infer<typeof configDoJevSchema>;
 
-const DESLIGADO: ConfigDoJev = { ligado: false, modo: "observacao", modo_roteador: "comparacao", aceite: null };
+const DESLIGADO: ConfigDoJev = {
+  ligado: false,
+  modo: "observacao",
+  modo_roteador: "comparacao",
+  origem: ORIGEM_PADRAO,
+  aceite: null,
+};
 
 export function lerConfigDoJev(settings: unknown): ConfigDoJev {
   const jev =
@@ -132,7 +159,9 @@ export type ResultadoDeGravarConfig =
   | { ok: true; config: ConfigDoJev }
   | { ok: false; motivo: "leitura_falhou" | "config_invalida" | "escrita_recusada" };
 
-export type MudancaDaConfig = Partial<Pick<ConfigDoJev, "ligado" | "modo" | "modo_roteador" | "aceite">> & {
+export type MudancaDaConfig = Partial<Pick<ConfigDoJev, "ligado" | "modo" | "modo_roteador" | "origem" | "aceite">> & {
+  /** `null` volta ao padrão (o Jev); `undefined` não mexe. */
+  modelo?: string | null;
   /** Só as tarefas que mudam; as outras ficam como estão. */
   tarefas?: Partial<Record<IdDaTarefa, EstadoDaTarefa>>;
 };
@@ -166,7 +195,7 @@ export function mesclar(
   mudanca: MudancaDaConfig,
   carimbo: { em: string; por: string },
 ): unknown {
-  const { tarefas: tarefasPedidas, ...resto } = mudanca;
+  const { tarefas: tarefasPedidas, modelo: modeloPedido, ...resto } = mudanca;
   const pedidas: Partial<Record<IdDaTarefa, EstadoDaTarefa>> = { ...tarefasPedidas };
   if (pedidas.clima === undefined && mudanca.modo !== undefined) pedidas.clima = ESTADO_DO_MODO[mudanca.modo];
   const clima = pedidas.clima;
@@ -177,7 +206,7 @@ export function mesclar(
     if (estado !== undefined) tarefas[id] = { estado, alterado_em: carimbo.em, alterado_por: carimbo.por };
   }
 
-  return {
+  const proxima: Record<string, unknown> = {
     ...atual,
     ...resto,
     ...(clima !== undefined && clima !== "desligada" ? { modo: MODO_DO_ESTADO[clima] } : {}),
@@ -185,6 +214,12 @@ export function mesclar(
     alterado_em: carimbo.em,
     alterado_por: carimbo.por,
   };
+  // `modelo: null` é "voltar ao padrão", e o padrão é a AUSÊNCIA do campo —
+  // gravar `null` faria o `safeParse` da próxima leitura recusar a config
+  // inteira. `undefined` não mexe no que está gravado.
+  if (modeloPedido === null) delete proxima.modelo;
+  else if (modeloPedido !== undefined) proxima.modelo = modeloPedido;
+  return proxima;
 }
 
 /**

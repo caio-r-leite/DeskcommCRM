@@ -27,6 +27,12 @@ export interface EscopoDaVersao {
   knowledge_source_ids?: string[];
   quick_reply_access_mode?: "none" | "selected" | "all";
   quick_reply_template_ids?: string[];
+  /**
+   * Skills por agente (9107). `null`/ausente = todas, e `[]` = nenhuma: nos dois
+   * não há nome para conferir. Os nomes são conferidos contra as skills da
+   * organização E as de plataforma, que valem em toda organização sem instalar.
+   */
+  skill_names?: string[] | null;
   /** `null`/ausente = a chave da instalação; não há o que conferir. */
   credential_id?: string | null;
   channel_session_id?: string | null;
@@ -43,7 +49,13 @@ export type ResultadoDoEscopo =
   | { ok: false; campo: "provider"; ausentes: string[] }
   | {
       ok: false;
-      campo: "pipeline_ids" | "knowledge_source_ids" | "quick_reply_template_ids" | "credential_id" | "channel_session_id";
+      campo:
+        | "pipeline_ids"
+        | "knowledge_source_ids"
+        | "quick_reply_template_ids"
+        | "skill_names"
+        | "credential_id"
+        | "channel_session_id";
       ausentes: string[];
     };
 
@@ -111,6 +123,20 @@ export async function validarEscopoDaVersao(
     if (ausentes.length > 0) return { ok: false, campo: "quick_reply_template_ids", ausentes };
   }
 
+  const skills = escopo.skill_names ?? [];
+  if (skills.length > 0) {
+    // Uma skill da organização ou de plataforma (`organization_id is null`): a de
+    // plataforma vale sem instalar, e marcá-la é escolha legítima.
+    const { data } = await supabase
+      .from("skill_pointers")
+      .select("name")
+      .or(`organization_id.eq.${organizationId},organization_id.is.null`)
+      .in("name", skills);
+    const achados = new Set(((data ?? []) as Array<{ name: string }>).map((r) => r.name));
+    const ausentes = skills.filter((nome) => !achados.has(nome));
+    if (ausentes.length > 0) return { ok: false, campo: "skill_names", ausentes };
+  }
+
   // Credencial e canal são referências únicas, e a FK do banco só confere que
   // a linha EXISTE — não que é desta organização. "De outra organização" e
   // "não existe" dão a mesma resposta de propósito.
@@ -143,6 +169,8 @@ export function mensagemDoEscopo(r: Extract<ResultadoDoEscopo, { ok: false }>): 
       return r.ausentes.length === 0
         ? "Selecione ao menos uma resposta rápida para este agente."
         : `Uma das respostas rápidas marcadas não existe mais ou não é compartilhada (${r.ausentes.length}). Recarregue a página e marque de novo.`;
+    case "skill_names":
+      return `Uma das skills marcadas não existe mais nesta organização (${r.ausentes.length}). Recarregue a página e marque de novo.`;
     case "credential_id":
       return "A credencial escolhida não existe nesta organização. Recarregue a página e escolha de novo.";
     case "channel_session_id":

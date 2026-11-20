@@ -49,6 +49,7 @@ interface Props {
   status: string;
   tags: string[];
   onClose: () => void;
+  onPrepararNoComposer?: (template: MessageTemplate) => void;
 }
 
 type SnapshotStep = MessageTemplateStep & { enabled: boolean; body: string };
@@ -108,6 +109,7 @@ export function QuickRepliesPanel({
   status,
   tags,
   onClose,
+  onPrepararNoComposer,
 }: Props) {
   const t = useT();
   const qc = useQueryClient();
@@ -146,14 +148,14 @@ export function QuickRepliesPanel({
     let result = (templates.data ?? []).filter((tpl) => respostaRapidaCorresponde(tpl, query));
     if (category) result = result.filter((tpl) => tpl.category_id === category);
     if (filter === "text")
-      result = result.filter((tpl) => tpl.steps.every((step) => step.action_type === "text"));
+      result = result.filter((tpl) => !tpl.midias?.length && (tpl.steps ?? []).every((step) => step.action_type === "text"));
     if (filter === "media")
       result = result.filter((tpl) =>
-        tpl.steps.some((step) => step.action_type === "image" || step.action_type === "video"),
+        tpl.midias?.length || tpl.steps?.some((step) => step.action_type === "image" || step.action_type === "video"),
       );
-    if (filter === "script") result = result.filter((tpl) => tpl.steps.length > 1);
+    if (filter === "script") result = result.filter((tpl) => tpl.kind === "script");
     if (filter === "uncategorized") result = result.filter((tpl) => !tpl.category_id);
-    if (filter === "most_used") result = [...result].sort((a, b) => b.usage_count - a.usage_count);
+    if (filter === "most_used") result = [...result].sort((a, b) => (b.usage_count ?? 0) - (a.usage_count ?? 0));
     return result;
   }, [templates.data, query, filter, category]);
 
@@ -162,7 +164,7 @@ export function QuickRepliesPanel({
       name: contactName ?? null,
       displayName: contactDisplayName ?? null,
     };
-    return template.steps.map((step) => ({
+    return (template.steps ?? []).map((step) => ({
       ...step,
       enabled: true,
       body: interpolateTemplate(step.body, contato),
@@ -170,6 +172,10 @@ export function QuickRepliesPanel({
   }
 
   function openPreview(template: MessageTemplate) {
+    if (template.midias?.length || !template.steps?.length) {
+      onPrepararNoComposer?.(template);
+      return;
+    }
     setSelected(template);
     setPreview(previewFor(template));
     setExecution(null);
@@ -391,6 +397,10 @@ export function QuickRepliesPanel({
 
   function sendNow(template: MessageTemplate) {
     if (running) return;
+    if (template.midias?.length || !template.steps?.length) {
+      onPrepararNoComposer?.(template);
+      return;
+    }
     setExecution(null);
     void run(template, previewFor(template), false);
   }
@@ -460,6 +470,7 @@ export function QuickRepliesPanel({
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
           {visible.map((template) => {
             const sending = runningTemplateId === template.id;
+            const revisarNoComposer = Boolean(template.midias?.length) || !template.steps?.length;
             return (
               <div
                 key={template.id}
@@ -468,7 +479,7 @@ export function QuickRepliesPanel({
                 role="button"
                 tabIndex={running ? -1 : 0}
                 aria-disabled={running}
-                aria-label={`${t("Enviar agora")}: ${template.title}`}
+                aria-label={`${t(revisarNoComposer ? "Revisar e enviar" : "Enviar agora")}: ${template.title}`}
                 onClick={() => sendNow(template)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
@@ -489,7 +500,7 @@ export function QuickRepliesPanel({
                       )}
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {template.steps.length} {t("envio(s)/ação(ões)")} · {template.usage_count}{" "}
+                      {template.steps?.length ?? 0} {t("envio(s)/ação(ões)")} · {template.usage_count ?? 0}{" "}
                       {t("uso(s)")}
                     </p>
                   </div>
@@ -509,8 +520,8 @@ export function QuickRepliesPanel({
                   <Button
                     size="icon"
                     variant="ghost"
-                    title={t("Enviar agora")}
-                    aria-label={`${t("Enviar agora")}: ${template.title}`}
+                    title={t(revisarNoComposer ? "Revisar e enviar" : "Enviar agora")}
+                    aria-label={`${t(revisarNoComposer ? "Revisar e enviar" : "Enviar agora")}: ${template.title}`}
                     disabled={running}
                     onClick={(event) => {
                       event.stopPropagation();

@@ -34,6 +34,7 @@ import { ArrowRight, Archive, Check, Pause, Robot, X } from "@/lib/ui/icons";
 import { ArchiveConversationDialog } from "@/components/inbox/ArchiveConversationDialog";
 import type { ConfiguracaoDoArquivamento } from "@/lib/inbox/configuracao-do-arquivamento";
 import { CONFIGURACAO_PADRAO_DO_ARQUIVAMENTO } from "@/lib/inbox/configuracao-do-arquivamento";
+import { rotuloDoMembro } from "@/lib/users/rotulo-do-atendente";
 
 interface Props {
   /** Quantas conversas estão marcadas. Zero = a barra não existe. */
@@ -114,7 +115,7 @@ export function BarraDeAcoesEmLote({
       aria-label={t("Ações em lote")}
       data-testid="barra-de-acoes-em-lote"
     >
-      <span className="mr-1 text-xs font-medium text-text-muted">
+      <span className="mr-1 text-xs font-medium text-foreground">
         {quantidade === 1
           ? t("1 conversa selecionada")
           : `${quantidade} ${t("conversas selecionadas")}`}
@@ -214,7 +215,7 @@ export function BarraDeAcoesEmLote({
                 <SelectContent>
                   {lista.map((m) => (
                     <SelectItem key={m.user_id} value={m.user_id}>
-                      {m.full_name ?? m.user_id}
+                      {rotuloDoMembro(m, t)}
                     </SelectItem>
                   ))}
                 </SelectContent>

@@ -1,60 +1,53 @@
 "use client";
 import { useId, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { apiClient } from "@/lib/api/client";
 import { showApiError } from "@/components/feedback/ApiErrorToast";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { useT } from "@/hooks/i18n/useT";
-import { sugestaoParaMostrar } from "@/lib/agent-engine/agent/sugestao-de-resposta";
-import { CaretDown, CaretRight, Sparkle } from "@/lib/ui/icons";
-import { cn } from "@/lib/utils";
-type Draft = {
-  id: string;
-  revision: string;
-  status: string;
-  original_body: string | null;
-  edited_body: string | null;
-  error_code: string | null;
-  proposals: Array<{ tool: string; arguments: unknown }>;
-};
+import { chaveDosRascunhos, useRascunhoAssistido } from "@/hooks/inbox/useRascunhoAssistido";
+import { motivoDoVeto } from "@/lib/agent-engine/agent/sugestao-de-resposta";
 export function ReplyReviewPanel({
   conversationId,
   disabled,
+  collapsible = false,
 }: {
   conversationId: string;
   disabled?: boolean;
+  collapsible?: boolean;
 }) {
   const t = useT(),
     qc = useQueryClient(),
-    key = ["reply-drafts", conversationId],
-    contentId = useId();
-  const query = useQuery({
-    queryKey: key,
-    queryFn: () =>
-      apiClient.get<{ data: { drafts: Draft[] } }>(
-        `/api/v1/conversations/${conversationId}/draft-reply`,
-      ),
-    refetchInterval: 4000,
-    retry: false,
-  });
+    key = chaveDosRascunhos(conversationId);
+  // A MESMA consulta que o `Composer` usa para decidir se este bloco existe
+  // (issue #3027): uma chave, um cache, dois leitores. Antes dele montar o bloco
+  // só quando há sugestão, `drafts[0]` era escolhido aqui — o critério não mudou,
+  // mudou só quem pergunta.
+  const { sugestao: draft } = useRascunhoAssistido(conversationId);
+  const conteudoId = useId();
+  const [expandido, setExpandido] = useState(false);
   const [edits, setEdits] = useState<Record<string, string>>({}),
     [feedback, setFeedback] = useState(""),
     [busy, setBusy] = useState(false),
-    [expanded, setExpanded] = useState(false),
-    [notice, setNotice] = useState<{
-      draftId: string;
-      message: string;
-      kind: "success" | "error";
-    } | null>(null);
-  // Antes: `drafts[0]`, o mais recente, QUALQUER que fosse o estado dele — então
-  // uma sugestão rejeitada ficava na tela para sempre, sem botão de fechar.
-  const draft = sugestaoParaMostrar(query.data?.data.drafts);
+    // Só o ERRO mora aqui: a confirmação virou toast (ver `decide`), porque o
+    // bloco inteiro sai da tela quando a sugestão é decidida.
+    [notice, setNotice] = useState<{ draftId: string; message: string } | null>(null);
   const body = draft ? (edits[draft.id] ?? draft.edited_body ?? draft.original_body ?? "") : "";
+  // A causa do veto, em linguagem de quem opera (issue #2975): sem código
+  // conhecido, a frase genérica de sempre continua sendo a verdade.
+  const motivo = draft ? motivoDoVeto(draft.error_code) : null;
+  // Pendente COM texto e COM código de veto de envio (doc de decisão 234): a
+  // prévia barrou uma versão anterior e a sugestão oferecida veio depois. Só os
+  // vetos de envio têm `causa`; paradas e `unknown_preview_tool` não barram
+  // versão nenhuma. O aviso não diz que ESTE texto é a reescrita: o rascunho
+  // grava só `impediments[0]`, e a barrada pode ter sido outra mensagem.
+  const barrada = draft?.status === "pending" && draft.original_body?.trim() ? motivo : null;
   async function generate() {
-    setExpanded(true);
     setNotice(null);
+    setExpandido(true);
     setBusy(true);
     try {
       await apiClient.post(`/api/v1/conversations/${conversationId}/draft-reply`, {});
@@ -76,20 +69,23 @@ export function ReplyReviewPanel({
         body,
         feedback,
       });
-      setNotice({
-        draftId: draft.id,
-        kind: "success",
-        message:
-          action === "approve"
-            ? t("Resposta aprovada. Acompanhe o envio aqui.")
-            : t("Sugestão rejeitada. O feedback será usado na próxima sugestão."),
-      });
+      // A CONFIRMAÇÃO VAI PARA O TOAST (issue #3027).
+      //
+      // Ela nasceu inline, dentro deste bloco, porque quem rejeita costuma pedir
+      // outra sugestão em seguida e a tela esvaziava em silêncio. Só que agora o
+      // bloco INTEIRO sai quando a sugestão é enviada ou descartada — o aviso
+      // inline morreria junto com ele, e o silêncio voltaria. Toast sobrevive à
+      // saída do bloco, e é onde as outras confirmações da tela já moram.
+      toast.success(
+        action === "approve"
+          ? t("Resposta aprovada. Acompanhe o envio aqui.")
+          : t("Sugestão rejeitada. O feedback será usado na próxima sugestão."),
+      );
       await qc.invalidateQueries({ queryKey: key });
     } catch (e) {
       showApiError(e);
       setNotice({
         draftId: draft.id,
-        kind: "error",
         message: t(
           "Sua edição foi preservada. Confira se a conversa mudou antes de aprovar novamente.",
         ),
@@ -111,147 +107,122 @@ export function ReplyReviewPanel({
   };
   return (
     <section
-      className={cn(
-        "rounded-lg border border-info/30 bg-info-bg/35 shadow-sm",
-        expanded ? "space-y-3 p-3" : "p-2.5",
-      )}
+      className="mb-3 space-y-2 rounded-md border bg-muted/30 p-3"
       aria-label={t("Assistência do agente")}
-      data-testid="reply-review-panel"
-      data-expanded={expanded ? "true" : "false"}
     >
-      <div className="flex items-center gap-2">
-        <button
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        {collapsible ? (
+          <button
+            type="button"
+            className="text-left text-sm font-medium hover:underline"
+            aria-expanded={expandido}
+            aria-controls={conteudoId}
+            onClick={() => setExpandido((atual) => !atual)}
+          >
+            {t(draft ? (statuses[draft.status] ?? "Assistência do agente") : "Assistência do agente")}
+          </button>
+        ) : <p className="text-sm font-medium">
+          {t(draft ? (statuses[draft.status] ?? "Assistência do agente") : "Assistência do agente")}
+        </p>}
+        <Button
           type="button"
-          className="flex min-w-0 flex-1 items-center gap-2 rounded-md text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          aria-expanded={expanded}
-          aria-controls={contentId}
-          onClick={() => setExpanded((value) => !value)}
+          variant="outline"
+          size="sm"
+          disabled={disabled || busy}
+          onClick={generate}
         >
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-info/15 text-info-fg">
-            <Sparkle size={16} weight="fill" aria-hidden />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-xs font-semibold tracking-wide text-info-fg uppercase">
-              {t("Assistência do agente")}
-            </span>
-            <span className="block truncate text-xs text-muted-foreground">
-              {t(
-                draft
-                  ? (statuses[draft.status] ?? "Assistência do agente")
-                  : "Gerar uma sugestão de resposta",
-              )}
-            </span>
-          </span>
-          {expanded ? <CaretDown size={16} aria-hidden /> : <CaretRight size={16} aria-hidden />}
-        </button>
-        {!expanded && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-8 shrink-0 bg-background"
-            disabled={disabled || busy}
-            onClick={generate}
-          >
-            {t(busy ? "Preparando…" : "Sugerir")}
-          </Button>
-        )}
+          {t(busy ? "Preparando…" : "Sugerir resposta")}
+        </Button>
       </div>
-      <div id={contentId} hidden={!expanded} className="space-y-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-sm font-medium text-foreground">
-            {t(draft ? (statuses[draft.status] ?? "Assistência do agente") : "Nova sugestão")}
+      <div id={conteudoId} hidden={collapsible && !expandido}>
+      {draft && (
+        <>
+          <p className="text-xs text-muted-foreground">
+            {t(
+              "Aprovar envia somente este texto. Não altera dados, agenda ou a autonomia do agente.",
+            )}
           </p>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={disabled || busy}
-            onClick={generate}
-          >
-            {t(busy ? "Preparando…" : "Sugerir resposta")}
-          </Button>
-        </div>
-        {draft && (
-          <>
+          {barrada?.causa && (
             <p className="text-xs text-muted-foreground">
-              {t(
-                "Aprovar envia somente este texto. Não altera dados, agenda ou a autonomia do agente.",
+              {t("Uma versão anterior desta sugestão foi barrada: {causa}. Confira antes de enviar.").replace(
+                "{causa}",
+                t(barrada.causa),
               )}
-            </p>
-            {body && (
-              <Textarea
-                aria-label={t("Resposta sugerida")}
-                value={body}
-                onChange={(e) => setEdits({ ...edits, [draft.id]: e.target.value })}
-                disabled={disabled || busy || draft.status !== "pending"}
-                rows={3}
-              />
-            )}
-            {draft.proposals.length > 0 && (
-              <details className="text-xs">
-                <summary>{t("Ações propostas: precisam de autorização separada")}</summary>
-                <p>{t("Abra a ação correspondente no CRM ou na agenda para confirmar.")}</p>
-                <ul>
-                  {draft.proposals.map((p, i) => (
-                    <li key={i}>{p.tool}</li>
-                  ))}
-                </ul>
-              </details>
-            )}
-            {draft.status === "pending" && (
-              <>
-                <Input
-                  aria-label={t("Feedback para a próxima sugestão")}
-                  placeholder={t("Feedback para a próxima sugestão")}
-                  value={feedback}
-                  onChange={(e) => setFeedback(e.target.value)}
-                  maxLength={1000}
-                />
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={disabled || busy || !body.trim()}
-                    onClick={() => decide("approve")}
-                  >
-                    {t("Aprovar e enviar")}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={disabled || busy}
-                    onClick={() => decide("reject")}
-                  >
-                    {t("Rejeitar")}
-                  </Button>
-                </div>
-              </>
-            )}
-            {draft.status === "failed" && (
-              <p className="text-xs">
-                {t("Confira a configuração do agente e tente gerar novamente.")}
-              </p>
-            )}
-          </>
-        )}
-        {/*
-        A confirmação da rejeição ("o feedback será usado na próxima sugestão")
-        estava amarrada a `draft` existir. Agora a rejeitada some da tela — que é
-        o conserto —, e sem esta mudança a confirmação sumiria junto com ela: a
-        pessoa clicaria em Rejeitar e a tela apenas esvaziaria, sem dizer nada.
-        Quando ainda há sugestão, o aviso continua amarrado a ela.
-      */}
-        {notice &&
-          (!draft ||
-            (notice.draftId === draft.id &&
-              (notice.kind === "error" ||
-                ["approved", "sending", "sent", "dismissed"].includes(draft.status)))) && (
-            <p role="status" className="text-xs">
-              {notice.message}
             </p>
           )}
+          {body && (
+            <Textarea
+              aria-label={t("Resposta sugerida")}
+              value={body}
+              onChange={(e) => setEdits({ ...edits, [draft.id]: e.target.value })}
+              disabled={disabled || busy || draft.status !== "pending"}
+              rows={3}
+            />
+          )}
+          {draft.proposals.length > 0 && (
+            <details className="text-xs">
+              <summary>{t("Ações propostas: precisam de autorização separada")}</summary>
+              <p>{t("Abra a ação correspondente no CRM ou na agenda para confirmar.")}</p>
+              <ul>
+                {draft.proposals.map((p, i) => (
+                  <li key={i}>{p.tool}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {draft.status === "pending" && (
+            <>
+              <Input
+                aria-label={t("Feedback para a próxima sugestão")}
+                placeholder={t("Feedback para a próxima sugestão")}
+                value={feedback}
+                onChange={(e) => setFeedback(e.target.value)}
+                maxLength={1000}
+              />
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={disabled || busy || !body.trim()}
+                  onClick={() => decide("approve")}
+                >
+                  {t("Aprovar e enviar")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={disabled || busy}
+                  onClick={() => decide("reject")}
+                >
+                  {t("Rejeitar")}
+                </Button>
+              </div>
+            </>
+          )}
+          {draft.status === "failed" && (
+            <p className="text-xs">
+              {motivo
+                ? t(motivo.texto)
+                : t("Confira a configuração do agente e tente gerar novamente.")}
+            </p>
+          )}
+        </>
+      )}
+      {/*
+        O aviso de ERRO continua inline, amarrado ao rascunho que ele explica:
+        "sua edição foi preservada" só faz sentido ao lado do texto preservado —
+        como toast, ele chegaria depois, sem o bloco à vista para conferir.
+
+        A confirmação de sucesso NÃO passa por aqui: ela é toast (ver `decide`),
+        porque quando a sugestão sai da tela (enviada ou descartada) este bloco
+        sai junto, e o aviso inline sairia com ele.
+      */}
+      {draft && notice && notice.draftId === draft.id && (
+        <p role="status" className="text-xs">
+          {notice.message}
+        </p>
+      )}
       </div>
     </section>
   );

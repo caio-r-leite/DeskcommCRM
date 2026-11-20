@@ -1,41 +1,92 @@
 import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
- * PATCH  /api/v1/message-templates/[id] — atualiza título/corpo/atalho.
- * DELETE /api/v1/message-templates/[id] — remove o template.
+ * PATCH  /api/v1/message-templates/[id] — atualiza título/corpo/atalho, a mídia
+ *        do recurso e a LISTA de imagens (`midias`, #2526).
+ * DELETE /api/v1/message-templates/[id] — remove o template e as imagens dele.
+ *
+ * ─── A rota GET (URL assinada do áudio) saiu em #2833 ───────────────────────
+ *
+ * Ela existia para o caminho próprio da barra de recursos: o clique assinava a
+ * URL do áudio e armava um anexo pendente só dele. Com a barra passando pelo
+ * MESMO `applyTemplate` do `/` (que baixa os bytes por
+ * `GET /message-templates/:id/midias/:indice`, a rota que já existia), ninguém
+ * mais a chamava: o grep de chamadores — `useMessageTemplates`, hooks e telas —
+ * ficou vazio, e o compositor era o último consumidor.
  *
  * O `.eq("organization_id", org.orgId)` é defesa extra, não substitui a RLS
  * `message_templates_write` — quem já não é dono (agent) nem manager (compartilhado)
  * é barrado pela policy antes de chegar aqui.
+ *
+ * ─── Por que `midias` só entra por aqui, e não pelo upload ──────────────────
+ *
+ * O upload ADICIONA (ele gera o caminho e confere os bytes); o PATCH é quem
+ * REMOVE, mandando a lista completa das que permanecem — o mesmo desenho do
+ * `PUT /products/:id/fotos`. Daí as duas conferências, e as duas importam:
+ *
+ *   1. `conferirMidias` — toda imagem da lista nova já existe na linha. Sem
+ *      ela, um corpo forjado cadastraria um caminho que ninguém subiu.
+ *   2. `midiaPertenceAoTemplate` — e que é DESTE template e desta organização.
+ *      `storage.remove` roda por service role, sem RLS: sem a conferência, o
+ *      PATCH apagaria arquivo de outra org pelo preço de um JSON.
+ *
+ * O apagado sai do bucket SÓ DEPOIS do update dar certo — arquivo órfão se
+ * recupera, linha apontando para arquivo sumido é tela quebrada.
+ *
+ * PATCH e DELETE aceitam sessão de navegador OU Bearer `dsk_…` (`config:write`,
+ * papel admin via `tokenRole`). No token o cliente é o admin (sem RLS): a leitura
+ * e o update filtram a organização à mão e só alcançam a resposta COMPARTILHADA
+ * (`owner_user_id` nulo) — a pessoal é de uma pessoa, e token não tem pessoa.
  */
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { type NextRequest } from "next/server";
 
 import { audit } from "@/lib/audit";
+import { resolveAuthDual, tetoDeEscritaDoToken } from "@/lib/api/auth-dual";
 import { fail, ok, noContent } from "@/lib/api/wrappers";
-import { requireRole } from "@/lib/auth/require-role";
-import { updateTemplateSchema } from "@/lib/schemas/templates";
-import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { IDIOMA_PADRAO } from "@/lib/i18n/idiomas";
+import { snapshotDeMidiasSchema, updateTemplateSchema } from "@/lib/schemas/templates";
 import { traduzir } from "@/lib/i18n/dicionario";
 import { isTemplateMediaPathOwnedBy } from "@/lib/messaging/media/upload-validation";
+import { logger } from "@/lib/logger";
+import { grupoDaOrganizacao } from "@/lib/templates/grupo-da-resposta";
+import { apagarMidiasDoTemplate } from "@/lib/templates/midias-no-bucket";
+import {
+  conferirMidias,
+  midiaPertenceAoTemplate,
+  type MidiaDeTemplate,
+} from "@/lib/templates/midias";
 
 export const dynamic = "force-dynamic";
 const COLS =
-  "id, organization_id, owner_user_id, kind, title, body, shortcut, media_storage_path, media_mime, media_size_bytes, media_filename, created_by_user_id, created_at, updated_at";
+  "id, organization_id, owner_user_id, title, body, shortcut, kind, category_id, usage_count, last_used_at, media_storage_path, media_mime, media_size_bytes, media_filename, midias, mostrar_na_barra, grupo_id, created_by_user_id, created_at, updated_at, ordem";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
 }
 
+/**
+ * PATCH — atualiza título/corpo/atalho, a mídia do recurso e a LISTA de imagens.
+ */
 export async function PATCH(req: NextRequest, { params }: RouteParams): Promise<Response> {
   const supportDenied = await requireSupportWrite();
   if (supportDenied) return supportDenied;
 
   const requestId = randomUUID();
-  const authz = await requireRole("agent", { requestId, resource: "message_templates" });
+  const authz = await resolveAuthDual(req, {
+    requestId,
+    resource: "message_templates",
+    role: "agent",
+    scope: "config:write",
+    tokenRole: "admin",
+  });
   if (!authz.ok) return authz.response;
-  const t = (texto: string) => traduzir(texto, authz.user.idioma);
-  const { user, org } = authz;
+  const teto = await tetoDeEscritaDoToken(authz, "message_templates.item", requestId);
+  if (teto) return teto;
+  const t = (texto: string) => traduzir(texto, authz.idioma ?? IDIOMA_PADRAO);
+  const orgId = authz.organizationId;
+  // Autor só quando quem chama é uma pessoa; token não tem usuário, então NULL.
+  const autor = authz.actor.type === "user" ? authz.actor.id : null;
   const { id } = await params;
 
   const raw = await req.json().catch(() => null);
@@ -47,29 +98,90 @@ export async function PATCH(req: NextRequest, { params }: RouteParams): Promise<
     });
   }
 
-  const supabase = await createClient();
-  if (parsed.data.body === "") {
-    const { data: existing } = await supabase
-      .from("message_templates")
-      .select("kind")
-      .eq("id", id)
-      .eq("organization_id", org.orgId)
-      .maybeSingle();
-    if (!existing) return fail("not_found", t("Template não encontrado."), 404, { requestId });
-    if (existing.kind === "text") {
-      return fail("validation_failed", t("A mensagem de texto não pode ficar vazia."), 422, {
-        requestId,
-      });
+  const supabase = authz.supabase;
+
+  // O GRUPO (#3245): `undefined` não mexe no vínculo; `null` DESVINCULA (volta
+  // à lista plana); um id só vale se for de grupo da organização ativa.
+  if (parsed.data.grupo_id !== undefined) {
+    try {
+      if (!(await grupoDaOrganizacao(supabase, orgId, parsed.data.grupo_id))) {
+        return fail("validation_failed", t("Dados inválidos."), 422, {
+          requestId,
+          details: { grupo_id: [t("Grupo que não pertence a esta organização.")] },
+        });
+      }
+    } catch {
+      return fail("internal_error", "Erro ao atualizar template.", 500, { requestId });
     }
   }
-  const { data, error } = await supabase
+
+  // A lista ATUAL vem antes do update: é dela que sai o diff. Sem esta leitura
+  // um PATCH que só remove apagaria o arquivo errado — ou nenhum.
+  let leitura = supabase
     .from("message_templates")
-    .update({ ...parsed.data, updated_at: new Date().toISOString() })
+    .select("midias")
     .eq("id", id)
-    .eq("organization_id", org.orgId)
+    .eq("organization_id", orgId);
+  // No token só o compartilhado (`owner_user_id` nulo) é alcançável.
+  if (authz.via === "token") leitura = leitura.is("owner_user_id", null);
+  const { data: linha, error: erroLeitura } = await leitura.maybeSingle();
+  if (erroLeitura) {
+    logger.error("[message-templates] falha ao ler midias", { detalhe: erroLeitura.message, requestId });
+    return fail("internal_error", "Erro ao atualizar template.", 500, { requestId });
+  }
+  if (!linha) return fail("not_found", t("Template não encontrado."), 404, { requestId });
+
+  const atuais = (linha as { midias: MidiaDeTemplate[] }).midias;
+  const { midias_esperadas: esperadas, ...campos } = parsed.data;
+  if (!snapshotDeMidiasSchema.safeParse(atuais).success || (esperadas !== undefined && !isDeepStrictEqual(atuais, esperadas))) {
+    return fail("conflict", t("As mídias mudaram. Recarregue a página."), 409, { requestId });
+  }
+  const novas = campos.midias;
+  let removidas: string[] = [];
+  let mantidas: MidiaDeTemplate[] | undefined;
+  if (novas !== undefined) {
+    if (novas.some((m) => !midiaPertenceAoTemplate(m.storage_path, orgId, id))) {
+      return fail("validation_failed", t("Dados inválidos."), 422, {
+        requestId,
+        details: { midias: ["Imagem que não pertence a este template."] },
+      });
+    }
+    const conferida = conferirMidias(atuais, novas);
+    if (!conferida.ok) {
+      // A tela está atrás da linha (outra aba mexeu) ou o corpo foi forjado.
+      return fail("conflict", t("As imagens mudaram. Recarregue a página."), 409, { requestId });
+    }
+    removidas = conferida.removidas;
+    mantidas = conferida.mantidas;
+  }
+
+  let atualizar = supabase
+    .from("message_templates")
+    // `midias` sai da LINHA conferida, nunca do corpo: o mime e o tamanho de
+    // cada imagem são do upload que conferiu os bytes.
+    .update({
+      ...campos,
+      ...(mantidas ? { midias: mantidas } : {}),
+      updated_at: new Date().toISOString(),
+    }, { count: "exact" })
+    .eq("id", id)
+    .eq("organization_id", orgId)
+    // Todos os escritores da lista usam a mesma precondição, inclusive o PATCH
+    // legado sem snapshot esperado. O valor bruto é JSONB, não objeto implícito.
+    .eq("midias", JSON.stringify(atuais));
+  if (authz.via === "token") atualizar = atualizar.is("owner_user_id", null);
+  const { data, error, count } = await Promise.resolve(atualizar
     .select(COLS)
-    .single();
-  if (error || !data) return fail("not_found", t("Template não encontrado."), 404, { requestId });
+    .maybeSingle()).catch(() => ({ data: null, error: { message: "write_failed" }, count: null }));
+  if (error || (!data && count !== 0)) {
+    return fail("internal_error", t("Não foi possível confirmar a gravação. Recarregue a página antes de tentar de novo."), 500, { requestId });
+  }
+  if (!data) return fail("conflict", t("As mídias mudaram. Recarregue a página."), 409, { requestId });
+
+  // Só depois da linha gravada, e nunca derruba o PATCH: o pedido do operador
+  // (remover a imagem) já foi atendido, o log é o que falta para a limpeza.
+  const apagaveis = removidas.filter((caminho) => midiaPertenceAoTemplate(caminho, orgId, id));
+  if (apagaveis.length) await apagarMidiasDoTemplate(apagaveis, requestId);
   if (data.kind !== "script") {
     const { error: stepError } = await supabase
       .from("message_template_steps")
@@ -79,74 +191,89 @@ export async function PATCH(req: NextRequest, { params }: RouteParams): Promise<
       })
       .eq("template_id", data.id)
       .eq("position", 0)
-      .eq("organization_id", org.orgId);
+      .eq("organization_id", orgId);
     if (stepError)
       return fail("internal_error", t("Erro ao atualizar passo do template."), 500, { requestId });
   }
 
   void audit({
     action: "template.updated",
-    actorUserId: user.id,
-    organizationId: org.orgId,
+    actorUserId: autor,
+    actorApiTokenId: authz.apiTokenId ?? null,
+    organizationId: orgId,
     resourceType: "message_template",
     resourceId: data.id,
     requestId,
-    metadata: { fields: Object.keys(parsed.data) },
+    metadata: { fields: Object.keys(campos), removidas: removidas.length },
   });
   return ok(data, { requestId });
 }
 
-export async function DELETE(_req: NextRequest, { params }: RouteParams): Promise<Response> {
+export async function DELETE(req: NextRequest, { params }: RouteParams): Promise<Response> {
   const supportDenied = await requireSupportWrite();
   if (supportDenied) return supportDenied;
 
   const requestId = randomUUID();
-  const authz = await requireRole("agent", { requestId, resource: "message_templates" });
+  const authz = await resolveAuthDual(req, {
+    requestId,
+    resource: "message_templates",
+    role: "agent",
+    scope: "config:write",
+    tokenRole: "admin",
+  });
   if (!authz.ok) return authz.response;
-  const t = (texto: string) => traduzir(texto, authz.user.idioma);
-  const { user, org } = authz;
+  const teto = await tetoDeEscritaDoToken(authz, "message_templates.item", requestId);
+  if (teto) return teto;
+  const t = (texto: string) => traduzir(texto, authz.idioma ?? IDIOMA_PADRAO);
+  const { organizationId, apiTokenId } = authz;
+  // Autor só quando quem chama é uma pessoa; token não tem usuário, então NULL.
+  const autor = authz.actor.type === "user" ? authz.actor.id : null;
   const { id } = await params;
 
-  const supabase = await createClient();
+  const supabase = authz.supabase;
   const { data: stepMedia } = await supabase
     .from("message_template_steps")
     .select("media_storage_path")
     .eq("template_id", id)
-    .eq("organization_id", org.orgId)
+    .eq("organization_id", organizationId)
     .not("media_storage_path", "is", null);
   // .select() confirma que a linha existia E era visível/apagável pela RLS.
   // Sem isso, um DELETE barrado pela RLS afeta 0 linhas mas ainda retornaria
   // 204 + audit falso (mutação que não ocorreu). Espelha a semântica do PATCH.
-  const { data: deleted, error } = await supabase
+  // `midias` vem junto porque é a ÚLTIMA chance de ler os caminhos: depois do
+  // delete a linha não existe mais, e a imagem dela ficaria órfã para sempre
+  // (critério de aceite da #2526).
+  let apagar = supabase
     .from("message_templates")
     .delete()
     .eq("id", id)
-    .eq("organization_id", org.orgId)
-    .select("id, media_storage_path")
+    .eq("organization_id", organizationId);
+  // No token não há pessoa: só o compartilhado (`owner_user_id` nulo) é alcançável.
+  if (authz.via === "token") apagar = apagar.is("owner_user_id", null);
+  const { data: deleted, error } = await apagar
+    .select("id, midias, media_storage_path")
     .maybeSingle();
   if (error) return fail("internal_error", "Erro ao excluir template.", 500, { requestId });
   if (!deleted) return fail("not_found", t("Template não encontrado."), 404, { requestId });
 
-  const mediaPaths = [
-    deleted.media_storage_path,
-    ...(stepMedia ?? []).map((step) => step.media_storage_path),
-  ].filter((path): path is string => !!path && isTemplateMediaPathOwnedBy(path, org.orgId));
-  if (mediaPaths.length) {
-    const { error: storageError } = await createAdminClient()
-      .storage.from("whatsapp-media")
-      .remove(Array.from(new Set(mediaPaths)));
-    if (storageError) {
-      console.error("[message-templates.delete] media cleanup failed", storageError.message);
-    }
-  }
+  const caminhos = (((deleted as { midias: MidiaDeTemplate[] | null }).midias ?? []) as MidiaDeTemplate[])
+    .map((m) => m.storage_path)
+    // A conferência é a mesma do PATCH: a leitura é por service role e o
+    // apagado é irreversível, então só o que é DESTE template sai daqui.
+    .filter((caminho) => midiaPertenceAoTemplate(caminho, organizationId, id));
+  const caminhosLegados = [deleted.media_storage_path, ...(stepMedia ?? []).map((step) => step.media_storage_path)]
+    .filter((path): path is string => !!path && isTemplateMediaPathOwnedBy(path, organizationId));
+  await apagarMidiasDoTemplate([...new Set([...caminhos, ...caminhosLegados])], requestId);
 
   void audit({
     action: "template.deleted",
-    actorUserId: user.id,
-    organizationId: org.orgId,
+    actorUserId: autor,
+    actorApiTokenId: apiTokenId ?? null,
+    organizationId,
     resourceType: "message_template",
     resourceId: deleted.id,
     requestId,
+    metadata: { midias: caminhos.length },
   });
   return noContent(requestId);
 }

@@ -815,6 +815,90 @@ saude_ok "unhealthy AINDA QUE o redis esteja ok" nao      unhealthy "$UNHEALTHY"
 saude_ok "porta aberta, app mudo"                nao      ''        ''
 saude_ok "proxy devolveu HTML de erro"           nao      ''        '<html>502 Bad Gateway</html>'
 
+echo "healthcheck.sh: veredito pelo status GERAL e código de saída (#4087)"
+# O defeito: o healthcheck procurava `"status":"ok"` no JSON cru. `ok` é o
+# vocabulário dos CHECKS individuais, então um app com o BANCO FORA (status
+# geral `unhealthy`) mas com o Redis de pé casava no `checks.redis` e imprimia
+# "✓ app saudável" — e, pior, saía 0: nem cron nem monitor podiam usá-lo como
+# alarme. Medido com o payload UNHEALTHY acima, no script de antes da correção:
+#   ✓ app saudável
+#   EXIT=0
+# A prova abaixo é de ponta a ponta e sem Docker nem rede: `docker` e `crontab`
+# são dublês, e o dublê do `exec` devolve as DUAS linhas que app_health_probe
+# produz (status geral, corpo).
+diagnostico_ok() {  # diagnostico_ok <descrição> <0|1> <status> <corpo>
+  local desc="$1" esperado="$2" st="$3" corpo="$4" real rc
+  if ST="$st" CORPO="$corpo" bash -c '
+        . ./_common.sh
+        relatar_saude_do_app "$(printf "%s\n%s\n" "${ST}" "${CORPO}")"
+      ' >/dev/null 2>&1
+  then real=0; else real=1; fi
+  if [ "$real" = "$esperado" ]; then printf '  ✓ %s\n' "$desc"
+  else printf '  ✗ %s  (deu %s, esperava %s)\n' "$desc" "$real" "$esperado"; fail=1; fi
+}
+diagnostico_ok "healthy: todos os checks ok"                  0 healthy   "$HEALTHY"
+diagnostico_ok "unhealthy com redis ok (o caso do #4087)"     1 unhealthy "$UNHEALTHY"
+diagnostico_ok "degraded: não é 'saudável' no diagnóstico"    1 degraded  "$DEGRADED"
+diagnostico_ok "status fora do vocabulário (sem_status)"      1 sem_status '{"erro":"rota antiga"}'
+diagnostico_ok "app mudo: sonda vazia"                        1 ''        ''
+
+# Regressão do grep mentiroso: se alguém voltar a decidir pelo texto do JSON em
+# vez do status geral, o healthcheck volta a mentir. A varredura é no código,
+# não nos comentários — por isso o literal não aparece em comentário nenhum.
+if grep -qF '"status":"ok"' ./healthcheck.sh; then
+  printf '  ✗ healthcheck.sh voltou a procurar o status `ok` dos checks no JSON cru\n'; fail=1
+else
+  printf '  ✓ healthcheck.sh não decide mais pelo `ok` dos checks\n'
+fi
+if grep -q 'app_health_probe' ./healthcheck.sh && grep -q 'relatar_saude_do_app' ./healthcheck.sh; then
+  printf '  ✓ healthcheck.sh usa a sonda e o veredito do _common.sh\n'
+else
+  printf '  ✗ healthcheck.sh não usa app_health_probe/relatar_saude_do_app\n'; fail=1
+fi
+
+hc_dir="$(mktemp -d)"
+cp ./healthcheck.sh ./_common.sh ./_i18n.sh ./_manifestos.sh "$hc_dir/"
+printf 'NEXT_PUBLIC_SUPABASE_URL=\n' > "$hc_dir/.env"
+: > "$hc_dir/docker-compose.prod.yml"
+mkdir -p "$hc_dir/bin"
+cat > "$hc_dir/bin/docker" <<'DUBLE'
+#!/usr/bin/env bash
+# Dublê do `docker compose … exec`: devolve o que a sonda do Node devolveria.
+if [ -n "${HC_VAZIO:-}" ]; then exit 1; fi
+case " $* " in
+  *" exec "*) printf '%s\n%s\n' "${HC_STATUS:-sem_status}" "${HC_CORPO:-}" ;;
+esac
+exit 0
+DUBLE
+printf '#!/usr/bin/env bash\nexit 1\n' > "$hc_dir/bin/crontab"
+chmod +x "$hc_dir/bin/docker" "$hc_dir/bin/crontab"
+
+healthcheck_ok() {  # healthcheck_ok <descrição> <0|1> <disse saudável?> <status> <corpo>
+  local desc="$1" esperado="$2" verde_esperado="$3" st="$4" corpo="$5" out rc verde
+  out="$(cd "$hc_dir" && PATH="$hc_dir/bin:$PATH" HC_STATUS="$st" HC_CORPO="$corpo" \
+        bash healthcheck.sh 2>&1)"
+  rc=$?
+  if printf '%s' "$out" | grep -q '✓ app saudável'; then verde=sim; else verde=nao; fi
+  if [ "$rc" = "$esperado" ] && [ "$verde" = "$verde_esperado" ]; then
+    printf '  ✓ %s\n' "$desc"
+  else
+    printf '  ✗ %s  (saiu %s, esperava %s; "saudável": %s, esperava %s)\n' \
+      "$desc" "$rc" "$esperado" "$verde" "$verde_esperado"; fail=1
+  fi
+}
+healthcheck_ok "banco fora + redis ok ⇒ REPROVA (sai 1)"  1 nao unhealthy "$UNHEALTHY"
+healthcheck_ok "healthy de verdade ⇒ APROVA (sai 0)"      0 sim healthy   "$HEALTHY"
+healthcheck_ok "degraded ⇒ REPROVA (sai 1)"               1 nao degraded  "$DEGRADED"
+healthcheck_ok "status desconhecido ⇒ REPROVA (sai 1)"    1 nao sem_status '{"erro":"rota antiga"}'
+out_mudo="$(cd "$hc_dir" && PATH="$hc_dir/bin:$PATH" HC_VAZIO=1 bash healthcheck.sh 2>&1)"
+rc_mudo=$?
+if [ "$rc_mudo" = 1 ] && ! printf '%s' "$out_mudo" | grep -q '✓ app saudável'; then
+  printf '  ✓ app não respondeu ⇒ REPROVA (sai 1)\n'
+else
+  printf '  ✗ app não respondeu  (saiu %s; nunca pode sair 0)\n' "$rc_mudo"; fail=1
+fi
+rm -rf "$hc_dir"
+
 echo "rascunho das respostas (save_partial → load_env)"
 # Quem trava na connection string — a pergunta mais difícil, e a última das
 # credenciais — perdia as 11 respostas anteriores. O que importa aqui é o
@@ -1124,8 +1208,16 @@ TMP_CRON="$(mktemp -d)"
     '! grep -qF "segredo-novo-9f8e7d" "$TMP_CRON/crontab"'
   checa "a linha legada, com o segredo velho, foi substituída" \
     '! grep -qF "segredo-velho-a1b2c3" "$TMP_CRON/crontab"'
-  checa "a linha lê o cabeçalho do arquivo" \
-    'grep -F "$URL" "$TMP_CRON/crontab" | grep -qF -- "-H @\"$CAB\""'
+  # Desde a #2235 a linha do host não carrega mais o `curl`: ela chama o VIGIA
+  # (`hostgator-setup-kit/drain-watchdog.sh`), que só dispara o dreno quando o
+  # contêiner `scheduler` desta instalação não está de pé. O segredo continua
+  # fora da linha — quem lê o cabeçalho passou a ser o script, e as duas metades
+  # são cobradas separadamente para o segredo não voltar para o crontab por
+  # ninguém ter olhado o outro lado.
+  checa "a linha chama o vigia do dreno (e não um curl solto)" \
+    'grep -F "$URL" "$TMP_CRON/crontab" | grep -qF "drain-watchdog.sh" && ! grep -F "$URL" "$TMP_CRON/crontab" | grep -q "curl "'
+  checa "o vigia lê o cabeçalho do arquivo" \
+    'grep -qF -- "-H @\"\$cabecalho\"" ./drain-watchdog.sh' 
   checa "o arquivo tem o cabeçalho que a rota espera" \
     '[ "$(cat "$CAB")" = "Authorization: Bearer segredo-novo-9f8e7d" ]'
   # `stat -c` é GNU; no macOS o equivalente é `stat -f '%Lp'` (mesma forma usada mais
@@ -2112,6 +2204,12 @@ TMP3B="$(mktemp -d)"
   montar_vps "$TMP3B" "crmlimpa" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$DOCKER_LOG"
+# A ordem que importa ao par VAPID: o que o `.env` e o ambiente têm NA HORA do
+# `up` — é o que o contêiner recebe. Número de linha no script não prova ordem.
+case "$*" in *" up "*)
+  v="$(sed -n 's/^VAPID_PUBLIC_KEY=//p' .env 2>/dev/null | tail -1 | tr -d "\"'")"
+  printf 'vapid-no-up arquivo=%s ambiente=%s\n' "${#v}" "${#VAPID_PUBLIC_KEY}" >> "$DOCKER_LOG" ;;
+esac
 case "$1" in
   compose) case "$*" in *" exec "*) printf 'healthy\n{"data":{"status":"healthy"}}\n' ;; esac; exit 0 ;;
 esac
@@ -2136,6 +2234,20 @@ STUB
       "$(grep -oE '^[A-Z_]+=' "$VPS_PROJ/.env" | tail -3 | tr '\n' ' ')"; exit 1
   fi
   printf '  ✓ portas livres → Caddy, e o .env sai inteiro mesmo sem proxy externo\n'
+  # O par VAPID nasce com a instalação (ADR-0006, D6), e já está no .env e no
+  # ambiente quando o primeiro contêiner sobe.
+  pub="$(valor_no_env "$VPS_PROJ/.env" VAPID_PUBLIC_KEY)"
+  priv="$(valor_no_env "$VPS_PROJ/.env" VAPID_PRIVATE_KEY)"
+  if [ "${#pub}" -ne 87 ] || [ "${#priv}" -ne 43 ]; then
+    printf '  ✗ a instalação nova não criou o par VAPID (pública %s, privada %s caracteres; esperado 87 e 43)\n' "${#pub}" "${#priv}"; exit 1
+  fi
+  if ! grep -q '^vapid-no-up ' "$VPS_LOG"; then
+    printf '  ✗ nenhum `up` passou pela sonda do par — cenário inconclusivo, não verde\n'; exit 1
+  fi
+  if grep '^vapid-no-up ' "$VPS_LOG" | grep -vq 'arquivo=87 ambiente=87$'; then
+    printf '  ✗ algum `up` subiu antes de o par estar no .env e no ambiente:\n%s\n' "$(grep '^vapid-no-up ' "$VPS_LOG")"; exit 1
+  fi
+  printf '  ✓ o par VAPID nasce com a instalação (87/43) e já está lá em todo `up`\n'
 
   # `--yes` não pergunta nada, e campo sem default e sem `opcional` morre em
   # `die` — a linha acima já provaria isso pela metade (o .env sairia truncado).
@@ -3303,6 +3415,12 @@ TMP_AVISO="$(mktemp -d)"
   montar_vps "$TMP_AVISO" "crmaviso" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$DOCKER_LOG"
+# A ordem que importa ao par VAPID: o que o `.env` e o ambiente têm NA HORA do
+# `up` — é o que o contêiner recebe. Número de linha no script não prova ordem.
+case "$*" in *" up "*)
+  v="$(sed -n 's/^VAPID_PUBLIC_KEY=//p' .env 2>/dev/null | tail -1 | tr -d "\"'")"
+  printf 'vapid-no-up arquivo=%s ambiente=%s\n' "${#v}" "${#VAPID_PUBLIC_KEY}" >> "$DOCKER_LOG" ;;
+esac
 case "$1" in
   compose) case "$*" in *" exec "*) printf 'healthy\n{"data":{"status":"healthy"}}\n' ;; esac; exit 0 ;;
 esac
@@ -3318,7 +3436,14 @@ STUB
 NEXT_PUBLIC_APP_URL='https://crm.exemplo.com.br'"
   # Sem token — o estado de quem instalou pelo caminho documentado.
   unset SUPABASE_ACCESS_TOKEN
-  um="$(rodar update.sh "" "$extra")"
+  # O vazio que o install grava em toda instalação: o `load_env` do update.sh o
+  # EXPORTA, e o par tem de vencê-lo no ambiente também.
+  extra_vazio="$extra
+VAPID_PUBLIC_KEY=\"\"
+VAPID_PRIVATE_KEY=\"\""
+  um="$(rodar update.sh "" "$extra_vazio")"
+  log_um="$(cat "$VPS_LOG")"
+  env_um="$(cat "$VPS_PROJ/.env")"
   dois="$(rodar update.sh "" "$extra")"
 
   # CONTROLE POSITIVO: sem chegar ao fim, a ausência do aviso não mede nada.
@@ -3340,6 +3465,18 @@ NEXT_PUBLIC_APP_URL='https://crm.exemplo.com.br'"
     printf '  ✗ a 2ª atualização repetiu o aviso — atualização que resmunga ensina a ignorar a saída\n'; exit 1
   fi
   printf '  ✓ a 1ª atualização avisa (com o domínio preenchido) e a 2ª fica calada\n'
+  # O par VAPID chega a quem já instalou pela atualização, ANTES de qualquer
+  # `up` — medido no `up` de verdade (no dublê), não no número da linha.
+  if ! grep -q '^vapid-no-up ' <<<"$log_um"; then
+    printf '  ✗ nenhum `up` passou pela sonda do par — cenário inconclusivo, não verde\n'; exit 1
+  fi
+  if grep '^vapid-no-up ' <<<"$log_um" | grep -vq 'arquivo=87 ambiente=87$'; then
+    printf '  ✗ a atualização subiu contêiner antes de o par estar no .env e no ambiente:\n%s\n' "$(grep '^vapid-no-up ' <<<"$log_um")"; exit 1
+  fi
+  if [ "$(grep -c '^VAPID_PUBLIC_KEY=' <<<"$env_um")" -ne 1 ]; then
+    printf '  ✗ a atualização duplicou a linha VAPID_PUBLIC_KEY no .env\n'; exit 1
+  fi
+  printf '  ✓ a atualização cria o par de quem tinha o vazio, antes de todo `up`, no .env e no ambiente\n'
 ) || fail=1
 rm -rf "$TMP_AVISO"
 
@@ -3637,6 +3774,84 @@ caddy_skip_e2e "caddy (default): recria o próprio proxy"       caddy   ""      
 caddy_skip_e2e "traefik: nunca recria o Caddy"                  traefik "TRAEFIK_NETWORK='crmcaddyskip_proxy'"      nao
 caddy_skip_e2e "npm: nunca recria o Caddy"                      npm     "PROXY_NETWORK_NAME='proxy_network'"       nao
 caddy_skip_e2e "cloudflared: nunca recria o Caddy"              cloudflared "CLOUDFLARE_TUNNEL_TOKEN='token'"     nao
+
+echo "integração: update.sh só recria o Caddy com uma configuração que o Caddy aceitou (#2724)"
+# O arquivo do operador em caddy-sites/ não trava mais a atualização; em troca,
+# um arquivo errado ali faria o Caddy recriado parar e levar o CRM junto. A
+# guarda confere ANTES do primeiro `up -d` (a imagem nova do Caddy também
+# recria o proxy no `up -d` do parque) e, recusada, deixa o proxy antigo no ar
+# e diz o motivo citando caddy-sites/. O dublê faz o papel do `caddy validate`:
+# recusa quando algum .caddy da pasta tem a palavra QUEBRADO, aprova senão. E
+# ele lê o stdin: se o `run` herdasse o stdin de quem roda o update.sh por pipe,
+# comeria o próprio script — o dublê registra se achou algo para ler.
+proxy_conferido_e2e() {  # proxy_conferido_e2e <descrição> <conteúdo do .caddy> <bom|ruim>
+  local desc="$1" conteudo="$2" esperado="$3" dir saida n_val n_up
+  dir="$(mktemp -d)"
+  (
+    montar_vps "$dir" "crmcaddysites" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$DOCKER_LOG"
+case "$*" in
+  *" run "*"caddy validate"*)
+    if IFS= read -r -t 1 _l; then printf 'STDIN_CONSUMIDO\n' >> "$DOCKER_LOG"; fi
+    if grep -qs QUEBRADO caddy-sites/*.caddy; then
+      printf 'Error: adapting config using caddyfile: /etc/caddy/sites/wiki.caddy:2: unrecognized directive: QUEBRADO\n' >&2
+      exit 1
+    fi
+    printf 'Valid configuration\n'; exit 0 ;;
+  *" config --services"*) printf 'app\nworker\nscheduler\ncaddy\nwaha\n'; exit 0 ;;
+esac
+case "$1" in
+  compose) case "$*" in *" exec "*) printf 'healthy\n{"data":{"status":"healthy"}}\n' ;; esac; exit 0 ;;
+esac
+exit 0
+STUB
+    (cd "$VPS_PROJ" && git init -q -b main . \
+      && printf 'caddy-sites/*\n' > .gitignore \
+      && git -c user.email=t@exemplo -c user.name=teste add -A \
+      && git -c user.email=t@exemplo -c user.name=teste commit -qm base \
+      && git tag v9.9.9) >/dev/null 2>&1
+    mkdir -p "$VPS_PROJ/caddy-sites"
+    printf '%s\n' "$conteudo" > "$VPS_PROJ/caddy-sites/wiki.caddy"
+    saida="$(rodar update.sh --skip-backup "INTERNAL_SECRET='segredo-de-teste'
+NEXT_PUBLIC_APP_URL='https://crm.exemplo.com.br'" 'linha do stdin que não é do caddy
+')"
+    n_val="$(grep -n 'caddy validate' "$VPS_LOG" | head -1 | cut -d: -f1)"
+    # `up -d --no-deps app worker` é a subida do par VAPID recém-criado, antes da
+    # decisão de versão: nomeia os dois serviços e não alcança o Caddy.
+    n_up="$(grep -nE '^compose .* up -d( |$)' "$VPS_LOG" | grep -v -- '--force-recreate' | grep -v -- '--no-deps app worker$' | head -1 | cut -d: -f1)"
+    falhou=""
+    [ -n "$n_val" ] && [ -n "$n_up" ] && [ "$n_val" -lt "$n_up" ] \
+      || { printf '    a conferência não veio antes do primeiro up -d (validate=%s up=%s)\n' "$n_val" "$n_up"; falhou=1; }
+    ! grep -q STDIN_CONSUMIDO "$VPS_LOG" \
+      || { printf '    a conferência comeu o stdin do update.sh\n'; falhou=1; }
+    if [ "$esperado" = bom ]; then
+      grep -qF -- '--force-recreate --no-deps caddy' "$VPS_LOG" \
+        || { printf '    com a configuração aceita o Caddy não foi recriado\n'; falhou=1; }
+      grep -qE '^compose .* up -d$' "$VPS_LOG" \
+        || { printf '    o up -d do parque não foi o de sempre (sem lista de serviços)\n'; falhou=1; }
+      grep -q '✓ proxy recarregado' <<<"$saida" \
+        || { printf '    a saída não confirma o proxy recarregado\n'; falhou=1; }
+    else
+      ! grep -qF -- '--force-recreate --no-deps caddy' "$VPS_LOG" \
+        || { printf '    o Caddy foi recriado com a configuração recusada\n'; falhou=1; }
+      ! grep -E '^compose .* up -d' "$VPS_LOG" | grep -qw caddy \
+        || { printf '    um up -d do parque alcançou o caddy\n'; falhou=1; }
+      grep -qE '^compose .* up -d app worker scheduler waha$' "$VPS_LOG" \
+        || { printf '    o up -d do parque não subiu os outros serviços\n'; falhou=1; }
+      grep -q 'caddy-sites/' <<<"$saida" && grep -q 'unrecognized directive' <<<"$saida" \
+        && grep -q 'proxy anterior segue no ar' <<<"$saida" \
+        || { printf '    o aviso não cita caddy-sites/ e o motivo do Caddy\n'; falhou=1; }
+    fi
+    if [ -z "$falhou" ]; then printf '  ✓ %s\n' "$desc"
+    else printf '  ✗ %s\n     saída: %s\n' "$desc" "$(printf '%s' "$saida" | tail -4)"; exit 1; fi
+  ) || fail=1
+  rm -rf "$dir"
+}
+proxy_conferido_e2e "arquivo bom em caddy-sites/: confere e recria o proxy" \
+  "$(printf 'wiki.exemplo.com.br {\n\treverse_proxy wiki:80\n}')" bom
+proxy_conferido_e2e "arquivo ruim em caddy-sites/: mantém o proxy antigo e avisa" \
+  "$(printf 'wiki.exemplo.com.br {\n\tQUEBRADO\n}')" ruim
 
 echo "nome do projeto que o docker compose usa"
 # O compose faz TrimLeft("_-") no basename. Sem isso, uma pasta /root/_deskcomm

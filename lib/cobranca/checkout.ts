@@ -5,6 +5,7 @@
  *   1. reserva curta (compare-and-set em `checkout_expira_em`): link ainda
  *      válido é devolvido de novo; outro clique em curso → 409;
  *   2. fora de transação: assinatura já viva no provedor → 409 com o link;
+ *      ajuste proporcional em aberto morre no provedor antes (sem cobrança dupla);
  *      senão cliente (nome legal e o e-mail que a rota passa; o documento não é
  *      guardado) e checkout hospedado, com o teste grátis que ainda resta;
  *   3. grava provedor, modo, cliente e link. Falha na fase 2 libera a reserva.
@@ -20,7 +21,8 @@ import { documentoDoPagador, exigeDocumento } from "@/lib/cobranca/documento";
 import { limiteDoProvedorPorOrg, recusaDoProvedor } from "@/lib/cobranca/falhas";
 import { adaptador, modoDoProvedor } from "@/lib/cobranca/provedores";
 import { ErroDoProvedor } from "@/lib/cobranca/provedores/contrato";
-import type { EstadoDaAssinatura, Intervalo, ProvedorDeCobranca } from "@/lib/cobranca/vocabulario";
+import { desistirDoAjuste } from "@/lib/cobranca/troca";
+import type { EstadoDaAssinatura, Intervalo, Moeda, ProvedorDeCobranca } from "@/lib/cobranca/vocabulario";
 import { logger } from "@/lib/logger";
 
 const RESERVA_MS = 2 * 60_000;
@@ -32,8 +34,13 @@ interface Lida {
   trial_ate: string | null;
   provedor: ProvedorDeCobranca | null;
   provedor_cliente_id: string | null;
+  provedor_assinatura_id: string | null;
   checkout_url: string | null;
   checkout_expira_em: string | null;
+  troca_id: string | null;
+  troca_status: string | null;
+  troca_pagamento_ref: string | null;
+  troca_reserva_ate: string | null;
 }
 
 export type ResultadoDoCheckout =
@@ -54,6 +61,8 @@ export async function gerarLinkDePagamento(
     requestId: string;
     /** O dono da instalação agindo sobre a empresa: o audit registra o bypass de RLS. */
     comoDono: boolean;
+    /** Continuação do cadastro: não cobrar outro plano se ele mudou entre leituras. */
+    planoEsperado?: string;
   },
 ): Promise<ResultadoDoCheckout> {
   const { orgId } = p;
@@ -71,12 +80,15 @@ export async function gerarLinkDePagamento(
 
   const { data, error } = await admin
     .from("cobranca_assinaturas")
-    .select("plano_id, estado, trial_ate, provedor, provedor_cliente_id, checkout_url, checkout_expira_em")
+    .select("plano_id, estado, trial_ate, provedor, provedor_cliente_id, provedor_assinatura_id, checkout_url, checkout_expira_em, troca_id, troca_status, troca_pagamento_ref, troca_reserva_ate")
     .eq("organization_id", orgId)
     .maybeSingle();
   if (error) return recusar(500, "internal_error", "Não foi possível ler a assinatura.");
   const lida = data as Lida | null;
   if (!lida) return recusar(404, "not_found", "Sua empresa não tem plano de cobrança.");
+  if (p.planoEsperado && lida.plano_id !== p.planoEsperado) {
+    return recusar(409, "state_conflict", "O plano mudou. Confira a escolha antes de continuar para o pagamento.");
+  }
 
   const agora = new Date();
   const expira = lida.checkout_expira_em === null ? null : Date.parse(lida.checkout_expira_em);
@@ -111,6 +123,7 @@ export async function gerarLinkDePagamento(
     .from("cobranca_assinaturas")
     .update({ checkout_url: null, checkout_expira_em: reserva, checkout_sessao_id: null })
     .eq("organization_id", orgId)
+    .eq("plano_id", lida.plano_id)
     .or(`checkout_expira_em.is.null,checkout_expira_em.lt."${agora.toISOString()}"`)
     .select("organization_id")
     .maybeSingle();
@@ -128,6 +141,10 @@ export async function gerarLinkDePagamento(
       urlDeVolta: p.urlDeVolta,
       comoDono: p.comoDono,
     });
+    if ("recusa" in url) {
+      await liberarReserva(admin, orgId, reserva);
+      return url.recusa;
+    }
     if ("vivo" in url) {
       await liberarReserva(admin, orgId, reserva);
       if (url.vivo === null) {
@@ -155,6 +172,15 @@ export async function gerarLinkDePagamento(
       });
       return recusar(500, "internal_error", "Não foi possível gerar o link de pagamento. Tente de novo em instantes.");
     }
+    // Só metadados técnicos: nunca Error, description, corpo, URL ou credencial.
+    logger.warn("cobranca: checkout recusado pelo provedor", {
+      requestId: p.requestId,
+      organizationId: orgId,
+      provedor,
+      status: e.status,
+      codigo: /^[a-z][a-z0-9_]{0,63}$/i.test(e.codigo) ? e.codigo : "codigo_nao_publicavel",
+      transitorio: e.transitorio,
+    });
     if (e.codigo === "invalid_cpfCnpj") {
       // Dígitos certos e o Asaas recusou (o CNPJ alfanumérico, por exemplo): é o
       // documento, e quem clicou consegue resolver. Nunca o 502 "fale com quem administra".
@@ -196,19 +222,26 @@ async function gerarCheckout(
     urlDeVolta: string;
     comoDono: boolean;
   },
-): Promise<{ url: string } | { vivo: string | null }> {
+): Promise<{ url: string } | { vivo: string | null } | { recusa: ResultadoDoCheckout }> {
   const ad = adaptador(provedor);
   if (lida.provedor_cliente_id) {
-    const situacao = await ad.lerSituacao({ clienteRef: lida.provedor_cliente_id });
+    const situacao = await ad.lerSituacao({ clienteRef: lida.provedor_cliente_id, assinaturaRef: lida.provedor_assinatura_id });
     if (situacao.assinaturasVivas > 0) return { vivo: situacao.linkDePagamento };
+  }
+  if (lida.troca_id) {
+    // Ajuste proporcional em aberto e nenhuma assinatura viva (o Asaas cancela na
+    // hora): o checkout cheio por cima seria cobrança dupla. O ajuste morre no
+    // provedor ANTES; já pago, recusa — o plano pago está sendo aplicado.
+    const desistencia = await desistirDoAjuste(admin, orgId, lida, () => ad, new Date());
+    if (desistencia && !desistencia.ok) return { recusa: desistencia };
   }
   const [org, plano] = await Promise.all([
     admin.from("organizations").select("legal_name, display_name").eq("id", orgId).maybeSingle(),
-    admin.from("cobranca_planos").select("id, nome, preco_cents, intervalo").eq("id", lida.plano_id).maybeSingle(),
+    admin.from("cobranca_planos").select("id, nome, preco_cents, moeda, intervalo").eq("id", lida.plano_id).maybeSingle(),
   ]);
   if (org.error || plano.error || !plano.data) throw new Error("cobranca: empresa ou plano ilegível no checkout");
   const nomes = org.data as { legal_name: string | null; display_name: string } | null;
-  const p = plano.data as { id: string; nome: string; preco_cents: number; intervalo: Intervalo };
+  const p = plano.data as { id: string; nome: string; preco_cents: number; moeda: Moeda; intervalo: Intervalo };
   const clienteRef =
     lida.provedor_cliente_id ??
     (await ad.garantirCliente({ id: orgId, nome: nomes?.legal_name || nomes?.display_name || orgId, email: quem.email, documento: quem.documento }));
@@ -230,7 +263,7 @@ async function gerarCheckout(
   const inicio = await ad.iniciarAssinatura({
     clienteRef,
     orgId,
-    plano: { id: p.id, nome: p.nome, precoCents: p.preco_cents, intervalo: p.intervalo },
+    plano: { id: p.id, nome: p.nome, precoCents: p.preco_cents, moeda: p.moeda, intervalo: p.intervalo },
     trialAte: lida.estado === "trial" && lida.trial_ate ? new Date(lida.trial_ate) : null,
     urlDeVolta: quem.urlDeVolta,
     chaveIdempotencia: quem.chaveIdempotencia,
