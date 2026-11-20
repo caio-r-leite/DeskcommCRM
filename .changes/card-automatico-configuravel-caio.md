@@ -1,6 +1,7 @@
 ---
-type: minor
-area: crm
+impacto: capacidade_nova
+secao: adicionado
+titulo: Escolher o funil e a coluna dos cards automáticos
 ---
 
 - Cria automaticamente um card quando um contato inicia uma conversa sem negócio aberto.

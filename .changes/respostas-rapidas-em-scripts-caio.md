@@ -1,4 +1,8 @@
-# Respostas rápidas em scripts
+---
+impacto: capacidade_nova
+secao: adicionado
+titulo: Respostas rápidas em roteiros com mídia e ações
+---
 
 - Adiciona painel lateral de respostas rápidas no Inbox, com busca, filtros, categorias e ordenação por uso.
 - O olhinho abre uma cópia revisável para a conversa atual; editar ou retirar passos nessa prévia não altera o cadastro.

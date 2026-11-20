@@ -1,6 +1,6 @@
 ---
 impacto: capacidade_nova
-secao: melhorado
+secao: alterado
 titulo: Inbox ganha painéis compactos e card do lead com etiquetas
 ---
 

@@ -1,6 +1,7 @@
 ---
-type: minor
-area: inbox
+impacto: capacidade_nova
+secao: adicionado
+titulo: Filtrar conversas por data e ver etiquetas no Inbox
 ---
 
 - Exibe no card da conversa as etiquetas da conversa e do contato, sem duplicatas.
