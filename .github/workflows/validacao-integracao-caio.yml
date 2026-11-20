@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   build:
-    if: "!contains(github.event.head_commit.message, '[inbox]') && !contains(github.event.head_commit.message, '[inbox-arm64]')"
+    if: "!contains(github.event.head_commit.message, '[inbox]') && !contains(github.event.head_commit.message, '[inbox-e2e]')"
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -35,8 +35,22 @@ jobs:
       - name: Conferir o artefato
         run: test -f .next/standalone/server.js && test -d .next/static
 
+  tipos:
+    if: contains(github.event.head_commit.message, '[inbox-e2e]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 46f7efabbe93d6b9d179adea9a23b6eb97b11ad7
+          persist-credentials: false
+      - uses: ./.github/actions/preparar-node
+      - run: pnpm typecheck
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+
   navegador:
-    if: contains(github.event.head_commit.message, '[inbox]')
+    if: contains(github.event.head_commit.message, '[inbox-e2e]')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -80,11 +94,6 @@ jobs:
         run: |
           pnpm e2e:env
           grep -vE '^[[:space:]]*(#|$)' .env.e2e >> "$GITHUB_ENV"
-
-      - name: Verificar tipos do app e dos testes
-        run: pnpm typecheck
-        env:
-          NODE_OPTIONS: --max-old-space-size=6144
 
       - name: Compilar com o ambiente de teste
         run: pnpm e2e:build
