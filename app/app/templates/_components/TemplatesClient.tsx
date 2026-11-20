@@ -399,12 +399,14 @@ export function TemplatesClient({ canShare, currentUserId }: Props) {
         template={editing}
         grupos={grupos ?? []}
       />
-      <TemplateScriptDialog
-        open={scriptOpen}
-        onOpenChange={setScriptOpen}
-        canShare={canShare}
-        template={editingScript}
-      />
+      {scriptOpen && (
+        <TemplateScriptDialog
+          open={scriptOpen}
+          onOpenChange={setScriptOpen}
+          canShare={canShare}
+          template={editingScript}
+        />
+      )}
       {/* O grupo — criar e renomear no MESMO diálogo: é um campo só, e o
           formulário mudaria uma palavra entre os dois modos. */}
       <Dialog

@@ -251,7 +251,28 @@ function banco() {
     return builder;
   }
 
-  return { from: (_tabela: string) => consulta() };
+  function consultaDosPassos() {
+    const builder = {
+      select: () => builder,
+      eq: () => builder,
+      in: () => builder,
+      order: () => builder,
+      insert: () => builder,
+      update: () => builder,
+      then: (resolver: (value: { data: []; error: null }) => unknown) =>
+        Promise.resolve({ data: [] as [], error: null }).then(resolver),
+    };
+    return builder;
+  }
+
+  return {
+    from: (tabela: string) => {
+      if (tabela === "message_templates") return consulta();
+      if (tabela === "message_template_steps" || tabela === "message_template_categories")
+        return consultaDosPassos();
+      throw new Error(`Tabela inesperada neste teste: ${tabela}`);
+    },
+  };
 }
 
 /** O que a coluna pedida devolve — `"id"` responde só o id, como o `select` da rota. */
