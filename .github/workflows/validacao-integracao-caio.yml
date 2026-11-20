@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   build:
-    if: "!contains(github.event.head_commit.message, '[e2e]')"
+    if: "!contains(github.event.head_commit.message, '[e2e]') && !contains(github.event.head_commit.message, '[arm64]')"
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -93,3 +93,50 @@ jobs:
           pnpm exec playwright test --workers=1 --reporter=list
           tests/e2e/respostas-rapidas-conteudos.spec.ts
           tests/e2e/conversa-vira-lead.spec.ts
+
+  empacotar-arm64:
+    if: contains(github.event.head_commit.message, '[arm64]')
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 28
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - servico: app
+            dockerfile: Dockerfile
+          - servico: worker
+            dockerfile: Dockerfile.worker
+          - servico: scheduler
+            dockerfile: Dockerfile.scheduler
+    env:
+      RELEASE_COMMIT: 888834d41f1f0358ff07736348676a6c0c7840f6
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 888834d41f1f0358ff07736348676a6c0c7840f6
+          persist-credentials: false
+
+      - name: Construir imagem ARM64
+        env:
+          SERVICO: ${{ matrix.servico }}
+          DOCKERFILE: ${{ matrix.dockerfile }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"
+          tag="deskcomm-${SERVICO}:integracao-${RELEASE_COMMIT:0:9}"
+          docker build --platform linux/arm64 --file "$DOCKERFILE" --tag "$tag" \
+            --label "org.opencontainers.image.revision=$RELEASE_COMMIT" \
+            --build-arg "APP_VERSION=${RELEASE_COMMIT:0:9}" --build-arg NODE_HEAP_MB=6144 .
+          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$tag")" = linux/arm64
+          docker save "$tag" | gzip -1 > "deskcomm-${SERVICO}-arm64.tar.gz"
+          sha256sum "deskcomm-${SERVICO}-arm64.tar.gz" > "deskcomm-${SERVICO}-arm64.sha256"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: deskcomm-${{ matrix.servico }}-arm64
+          path: |
+            deskcomm-${{ matrix.servico }}-arm64.tar.gz
+            deskcomm-${{ matrix.servico }}-arm64.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
