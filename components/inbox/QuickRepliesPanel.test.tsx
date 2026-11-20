@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const h = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn(), get: vi.fn() }));
+const h = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn(), get: vi.fn(), incluirNativo: false }));
 vi.mock("@/lib/api/client", () => ({ apiClient: h }));
 vi.mock("@/hooks/i18n/useT", () => ({ useT: () => (text: string) => text }));
 vi.mock("@/hooks/inbox/useMessageTemplates", () => ({
@@ -17,6 +18,13 @@ vi.mock("@/hooks/inbox/useMessageTemplates", () => ({
   }),
   useMessageTemplates: () => ({
     data: [
+      ...(h.incluirNativo ? [{
+        id: "resposta-nativa",
+        title: "Foto com texto",
+        body: "Veja o catálogo",
+        midias: [{ storage_path: "foto.png", media_mime: "image/png", media_size_bytes: 42 }],
+        steps: [{ id: "passo-de-texto", action_type: "text", body: "Veja o catálogo" }],
+      }] : []),
       {
         id: "11111111-1111-4111-8111-111111111111",
         kind: "script",
@@ -76,7 +84,7 @@ vi.mock("@/hooks/inbox/useMessageTemplates", () => ({
 
 import { optionalMediaCaption, QuickRepliesPanel } from "./QuickRepliesPanel";
 
-function renderPanel() {
+function renderPanel(onPrepararNoComposer?: ComponentProps<typeof QuickRepliesPanel>["onPrepararNoComposer"]) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
@@ -86,18 +94,33 @@ function renderPanel() {
         status="open"
         tags={[]}
         onClose={() => undefined}
+        onPrepararNoComposer={onPrepararNoComposer}
       />
     </QueryClientProvider>,
   );
 }
 
 describe("painel de respostas rápidas", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    h.incluirNativo = false;
+  });
 
   it("omite legenda vazia para a API aceitar foto sem texto", () => {
     expect(optionalMediaCaption("")).toBeUndefined();
     expect(optionalMediaCaption("   ")).toBeUndefined();
     expect(optionalMediaCaption("  Catálogo  ")).toBe("Catálogo");
+  });
+
+  it("prepara os anexos nativos para revisão em vez de disparar só o passo de texto", () => {
+    h.incluirNativo = true;
+    const preparar = vi.fn();
+    renderPanel(preparar);
+
+    fireEvent.click(screen.getByTestId("quick-reply-card-resposta-nativa"));
+
+    expect(preparar).toHaveBeenCalledWith(expect.objectContaining({ id: "resposta-nativa" }));
+    expect(h.post).not.toHaveBeenCalled();
   });
 
   it("abre pelo olho e editar a prévia não envia nem altera o cadastro", () => {
