@@ -1,4 +1,4 @@
-name: Validar layout da Inbox
+name: Validar atalhos e leitura da Inbox
 
 on:
   push:
@@ -36,13 +36,13 @@ jobs:
         run: test -f .next/standalone/server.js && test -d .next/static
 
   tipos:
-    if: contains(github.event.head_commit.message, '[inbox-e2e]')
+    if: contains(github.event.head_commit.message, '[inbox]')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 8681b806cc1bd9b13203518171b79d14bc3463b6
+          ref: 18959a9f6f65476f2184de57b81bfad5d008340c
           persist-credentials: false
       - uses: ./.github/actions/preparar-node
       - run: pnpm typecheck
@@ -56,7 +56,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 8681b806cc1bd9b13203518171b79d14bc3463b6
+          ref: 18959a9f6f65476f2184de57b81bfad5d008340c
           persist-credentials: false
 
       - uses: ./.github/actions/preparar-node
@@ -103,10 +103,10 @@ jobs:
       - name: Instalar o Chromium
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Testar calendário, menu e ações no card da Inbox
+      - name: Testar atalhos e os dois estados de não lida
         run: >-
           pnpm exec playwright test --workers=1 --reporter=list
-          tests/e2e/inbox-busca-e-filtros-dizem-a-verdade.spec.ts --grep @layout
+          tests/e2e/inbox-busca-e-filtros-dizem-a-verdade.spec.ts --grep @atalhos
 
       - uses: actions/upload-artifact@v7
         if: always()
@@ -127,11 +127,11 @@ jobs:
           - servico: app
             dockerfile: Dockerfile
     env:
-      RELEASE_COMMIT: 8681b806cc1bd9b13203518171b79d14bc3463b6
+      RELEASE_COMMIT: 18959a9f6f65476f2184de57b81bfad5d008340c
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 8681b806cc1bd9b13203518171b79d14bc3463b6
+          ref: 18959a9f6f65476f2184de57b81bfad5d008340c
           persist-credentials: false
 
       - name: Construir imagem ARM64
