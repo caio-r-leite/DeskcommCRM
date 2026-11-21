@@ -1340,12 +1340,11 @@ export function InboxLayout({
               conversationId={selectedConversation.id}
               onOpenQuickReplies={() => {
                 setRespostasSobMouse(false);
-                setEstadoDasRespostas((estado) =>
-                  respostasExpandidas ? "recolhido" :
-                  estado === "fechado" && window.matchMedia("(max-width: 767px)").matches
-                    ? "aberto"
-                    : alternarPainelDeRespostas(estado),
-                );
+                setEstadoDasRespostas((estado) => {
+                  if (respostasExpandidas) return "recolhido";
+                  if (window.matchMedia("(max-width: 767px)").matches) return "aberto";
+                  return alternarPainelDeRespostas(estado);
+                });
               }}
               onRevisarRoteiro={(template) => {
                 setPedidoDeRoteiro({ conversationId: selectedConversation.id, template });
@@ -1422,7 +1421,7 @@ export function InboxLayout({
         <div
           className={cn(
             "absolute inset-y-0 right-0 z-40 overflow-hidden shadow-2xl transition-[width] duration-200 ease-out",
-            respostasExpandidas ? "w-[calc(100%_-_3rem)] md:w-[26rem]" : "w-14",
+            respostasExpandidas ? "w-[calc(100%_-_3rem)] md:w-[26rem]" : "max-md:hidden md:w-14",
           )}
           data-testid="quick-replies-dock"
           data-quick-replies-surface
