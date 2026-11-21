@@ -42,7 +42,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 18959a9f6f65476f2184de57b81bfad5d008340c
+          ref: f83d7ae519492ce91e52a4558e7c1dce9ec4712e
           persist-credentials: false
       - uses: ./.github/actions/preparar-node
       - run: pnpm typecheck
@@ -56,7 +56,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 18959a9f6f65476f2184de57b81bfad5d008340c
+          ref: f83d7ae519492ce91e52a4558e7c1dce9ec4712e
           persist-credentials: false
 
       - uses: ./.github/actions/preparar-node
@@ -127,11 +127,11 @@ jobs:
           - servico: app
             dockerfile: Dockerfile
     env:
-      RELEASE_COMMIT: 18959a9f6f65476f2184de57b81bfad5d008340c
+      RELEASE_COMMIT: f83d7ae519492ce91e52a4558e7c1dce9ec4712e
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 18959a9f6f65476f2184de57b81bfad5d008340c
+          ref: f83d7ae519492ce91e52a4558e7c1dce9ec4712e
           persist-credentials: false
 
       - name: Construir imagem ARM64
