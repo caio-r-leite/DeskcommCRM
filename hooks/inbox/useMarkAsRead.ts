@@ -8,9 +8,9 @@ const DEBOUNCE_MS = 1500;
 
 /**
  * Marca a conversa como lida após permanecer em foco (EPIC-03 S-03.10).
- * Só chama a API quando unread > 0 para evitar writes desnecessários.
+ * A leitura também limpa a marca manual quando a conversa é reaberta.
  */
-export function useMarkAsRead(conversationId: string | null, unread: number) {
+export function useMarkAsRead(conversationId: string | null, unread: number, marcadaManualmente = false) {
   const { user } = useAuth();
   const readonly = user.support?.access_mode === "support_readonly";
   const qc = useQueryClient();
@@ -40,7 +40,7 @@ export function useMarkAsRead(conversationId: string | null, unread: number) {
     }
 
     if (suspensa.current !== conversationId) suspensa.current = null;
-    if (readonly || !conversationId || unread <= 0 || suspensa.current === conversationId) return;
+    if (readonly || !conversationId || (!marcadaManualmente && unread <= 0) || suspensa.current === conversationId) return;
 
     timerRef.current = setTimeout(() => {
       mutate(conversationId);
@@ -49,7 +49,7 @@ export function useMarkAsRead(conversationId: string | null, unread: number) {
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [conversationId, unread, mutate, readonly]);
+  }, [conversationId, unread, marcadaManualmente, mutate, readonly]);
 
   return {
     suspender(id: string) {

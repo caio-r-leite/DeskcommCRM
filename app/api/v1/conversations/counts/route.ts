@@ -8,6 +8,7 @@
  */
 import { randomUUID } from "node:crypto";
 
+import { FILTRO_DE_CONVERSA_NAO_LIDA } from "@/lib/inbox/estado-de-leitura";
 import type { NextRequest } from "next/server";
 
 import { fail, ok } from "@/lib/api/wrappers";
@@ -155,7 +156,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     q = aplicarMarcadores(q, marcadores, modo);
     if (pessoalVisivel) q = q.in("contact_id", [...pessoalVisivel]);
     else if (pessoais.length > 0) q = q.not("contact_id", "in", `(${pessoais.join(",")})`);
-    if (soNaoLidas) q = q.gt("unread_count_for_assignee", 0);
+    if (soNaoLidas) q = q.or(FILTRO_DE_CONVERSA_NAO_LIDA);
     return q;
   };
 

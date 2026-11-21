@@ -70,6 +70,7 @@ function conversa(id: string, organizationId: string, extra: Linha = {}): Linha 
     assignee_kind: "user",
     bot_silenced_until: null,
     unread_count_for_assignee: 2,
+    marcada_como_nao_lida: false,
     tags: [],
     ...extra,
   };
@@ -496,18 +497,24 @@ describe("POST /api/v1/conversations/bulk", () => {
     expect(estado.conversas.find((c) => c.id === CONV_B)?.unread_count_for_assignee).toBe(2);
   });
 
-  it("marca como não lida sem apagar contagens maiores ou tocar outra organização", async () => {
+  it("preserva a contagem real e guarda a marca manual apenas na organização atual", async () => {
     const zerar = await POST(req({ action: "mark-read", ids: [CONV_A] }));
     expect((await corpoDe(zerar)).data.feitos).toBe(1);
     const res = await POST(req({ action: "mark-unread", ids: [CONV_A, CONV_B] }));
     expect((await corpoDe(res)).data.feitos).toBe(1);
-    expect(estado.conversas.find((c) => c.id === CONV_A)?.unread_count_for_assignee).toBe(1);
+    expect(estado.conversas.find((c) => c.id === CONV_A)).toMatchObject({
+      unread_count_for_assignee: 0, marcada_como_nao_lida: true,
+    });
     expect(estado.conversas.find((c) => c.id === CONV_B)?.unread_count_for_assignee).toBe(2);
+    expect(estado.conversas.find((c) => c.id === CONV_B)?.marcada_como_nao_lida).not.toBe(true);
 
-    const conversa = estado.conversas.find((c) => c.id === CONV_A)!;
-    conversa.unread_count_for_assignee = 5;
+    await POST(req({ action: "mark-read", ids: [CONV_A] }));
+    expect(estado.conversas.find((c) => c.id === CONV_A)?.marcada_como_nao_lida).toBe(false);
+    estado.conversas.find((c) => c.id === CONV_A)!.unread_count_for_assignee = 5;
     await POST(req({ action: "mark-unread", ids: [CONV_A] }));
-    expect(estado.conversas.find((c) => c.id === CONV_A)?.unread_count_for_assignee).toBe(5);
+    expect(estado.conversas.find((c) => c.id === CONV_A)).toMatchObject({
+      unread_count_for_assignee: 5, marcada_como_nao_lida: false,
+    });
   });
 
   it("pause-ai audita conversation.ai_paused por conversa", async () => {

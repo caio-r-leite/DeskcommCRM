@@ -47,6 +47,7 @@ export interface Conversation {
   last_message_at: string | null;
   last_message_preview: string | null;
   unread_count_for_assignee: number;
+  marcada_como_nao_lida?: boolean;
   is_group: boolean;
   group_chat_id: string | null;
   tags: string[];

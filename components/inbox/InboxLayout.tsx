@@ -37,6 +37,7 @@ import { IniciarConversaPeloMenu } from "./PainelIniciarConversa";
 import { RetentionNotice } from "./RetentionNotice";
 import { CRMSidePanel } from "./CRMSidePanel";
 import { QuickRepliesPanel } from "./QuickRepliesPanel";
+import type { MessageTemplate } from "@/hooks/inbox/useMessageTemplates";
 import { fimLocalEmIso, inicioLocalEmIso } from "@/lib/inbox/filtro-de-data";
 import { alternarPainelDeRespostas, type EstadoDoPainelDeRespostas } from "@/lib/inbox/estado-painel-respostas";
 import { CONFIGURACAO_PADRAO_DO_ARQUIVAMENTO, type ConfiguracaoDoArquivamento } from "@/lib/inbox/configuracao-do-arquivamento";
@@ -428,6 +429,25 @@ export function InboxLayout({
   const [fichaAberta, setFichaAberta] = useState(false);
   const [estadoDasRespostas, setEstadoDasRespostas] = useState<EstadoDoPainelDeRespostas>("fechado");
   const [respostasSobMouse, setRespostasSobMouse] = useState(false);
+  const [pedidoDeRoteiro, setPedidoDeRoteiro] = useState<{
+    conversationId: string;
+    template: MessageTemplate;
+  } | null>(null);
+  const respostasExpandidas = estadoDasRespostas === "aberto" ||
+    (estadoDasRespostas === "recolhido" && respostasSobMouse);
+
+  useEffect(() => {
+    if (!respostasExpandidas) return;
+    function recolherAoClicarFora(evento: PointerEvent) {
+      if (evento.target instanceof Element && evento.target.closest("[data-quick-replies-surface]")) {
+        return;
+      }
+      setRespostasSobMouse(false);
+      setEstadoDasRespostas("recolhido");
+    }
+    document.addEventListener("pointerdown", recolherAoClicarFora, true);
+    return () => document.removeEventListener("pointerdown", recolherAoClicarFora, true);
+  }, [respostasExpandidas]);
   /**
    * QUEM ABRIU A GAVETA, para o foco voltar a ele ao fechar. Sem `SheetTrigger`
    * o Radix não tem para onde devolver o foco (o `triggerRef` dele fica nulo e o
@@ -696,6 +716,7 @@ export function InboxLayout({
   const leituraAutomatica = useMarkAsRead(
     selectedConversation?.id ?? null,
     selectedConversation?.unread_count_for_assignee ?? 0,
+    selectedConversation?.marcada_como_nao_lida,
   );
 
   const [dialogoDaLinha, setDialogoDaLinha] = useState<{
@@ -1317,7 +1338,19 @@ export function InboxLayout({
               key={rascunhoVivo ? `rascunho:${rascunhoVivo.conversationId}` : "composer"}
               ref={composerRef}
               conversationId={selectedConversation.id}
-              onOpenQuickReplies={() => setEstadoDasRespostas(alternarPainelDeRespostas)}
+              onOpenQuickReplies={() => {
+                setRespostasSobMouse(false);
+                setEstadoDasRespostas((estado) =>
+                  respostasExpandidas ? "recolhido" :
+                  estado === "fechado" && window.matchMedia("(max-width: 767px)").matches
+                    ? "aberto"
+                    : alternarPainelDeRespostas(estado),
+                );
+              }}
+              onRevisarRoteiro={(template) => {
+                setPedidoDeRoteiro({ conversationId: selectedConversation.id, template });
+                if (estadoDasRespostas === "fechado") setEstadoDasRespostas("recolhido");
+              }}
               quickRepliesActive={estadoDasRespostas !== "fechado"}
               assistenciaNaFicha
               agendamentoLigado={
@@ -1388,16 +1421,17 @@ export function InboxLayout({
       {!supportReadonly && !blockedReason && !motivoDaJanela && estadoDasRespostas !== "fechado" && selectedConversation?.contacts?.id && (
         <div
           className={cn(
-            "absolute inset-y-0 right-0 z-40 w-full overflow-hidden shadow-2xl transition-[width] duration-200 ease-out",
-            respostasSobMouse || estadoDasRespostas === "aberto" ? "md:w-[26rem]" : "md:w-14",
+            "absolute inset-y-0 right-0 z-40 overflow-hidden shadow-2xl transition-[width] duration-200 ease-out",
+            respostasExpandidas ? "w-[calc(100%_-_3rem)] md:w-[26rem]" : "w-14",
           )}
           data-testid="quick-replies-dock"
-          data-state={
-            respostasSobMouse || estadoDasRespostas === "aberto" ? "aberto" : "recolhido"
-          }
+          data-quick-replies-surface
+          data-state={respostasExpandidas ? "aberto" : "recolhido"}
           onMouseEnter={() => setRespostasSobMouse(true)}
           onMouseLeave={() => setRespostasSobMouse(false)}
-          onFocusCapture={() => setRespostasSobMouse(true)}
+          onFocusCapture={(event) => {
+            if (event.currentTarget.contains(event.target)) setRespostasSobMouse(true);
+          }}
           onBlurCapture={(event) => {
             if (!event.currentTarget.contains(event.relatedTarget)) setRespostasSobMouse(false);
           }}
@@ -1405,8 +1439,8 @@ export function InboxLayout({
           <button
             type="button"
             className={cn(
-              "absolute inset-0 hidden w-14 flex-col items-center justify-center gap-2 border-l bg-background/95 text-primary backdrop-blur transition-opacity md:flex",
-              (respostasSobMouse || estadoDasRespostas === "aberto") &&
+              "absolute inset-0 flex w-14 flex-col items-center justify-center gap-2 border-l bg-background/95 text-primary backdrop-blur transition-opacity",
+              respostasExpandidas &&
                 "pointer-events-none opacity-0",
             )}
             aria-label={t("Expandir respostas rápidas")}
@@ -1423,8 +1457,7 @@ export function InboxLayout({
           <div
             className={cn(
               "flex h-full justify-end transition-opacity",
-              !(respostasSobMouse || estadoDasRespostas === "aberto") &&
-                "md:pointer-events-none md:invisible md:opacity-0",
+              !respostasExpandidas && "pointer-events-none invisible opacity-0",
             )}
             onPointerDownCapture={() => {
               if (estadoDasRespostas === "recolhido") setEstadoDasRespostas("aberto");
@@ -1438,6 +1471,8 @@ export function InboxLayout({
               contactDisplayName={selectedConversation.contacts.display_name}
               status={selectedConversation.status}
               tags={selectedConversation.tags ?? []}
+              pedidoDeRoteiro={pedidoDeRoteiro?.conversationId === selectedConversation.id ? pedidoDeRoteiro.template : null}
+              onRoteiroRevisado={() => setPedidoDeRoteiro(null)}
               onClose={() => setEstadoDasRespostas("fechado")}
               onPrepararNoComposer={(template) => {
                 setEstadoDasRespostas("fechado");

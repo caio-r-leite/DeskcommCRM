@@ -69,4 +69,23 @@ describe("fn_mark_conversation_message — unread reflete pendência real", () =
     expect(depois).not.toBe("");
     expect(depois).not.toBe(antes);
   });
+  it("troca a marca manual por uma mensagem recebida e a limpa ao responder", () => {
+    const leitura = () => sql(
+      `select unread_count_for_assignee, marcada_como_nao_lida from public.conversations where id = '${CONV}';`,
+    );
+    const marcar = () => sql(
+      `update public.conversations set marcada_como_nao_lida = true where id = '${CONV}';`,
+    );
+    sql(`select public.fn_mark_conversation_message('${CONV}', 'outbound', 'resposta', now());`);
+    marcar();
+    expect(leitura()).toBe("0|t");
+    sql(`select public.fn_mark_conversation_message('${CONV}', 'inbound', 'nova mensagem', now());`);
+    expect(leitura()).toBe("1|f");
+
+    sql(`select public.fn_mark_conversation_message('${CONV}', 'outbound', 'resposta', now());`);
+    marcar();
+    sql(`select public.fn_mark_conversation_message('${CONV}', 'outbound', 'resposta', now());`);
+    expect(leitura()).toBe("0|f");
+  });
+
 });

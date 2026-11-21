@@ -49,6 +49,8 @@ interface Props {
   status: string;
   tags: string[];
   onClose: () => void;
+  pedidoDeRoteiro?: MessageTemplate | null;
+  onRoteiroRevisado?: () => void;
   onPrepararNoComposer?: (template: MessageTemplate) => void;
 }
 
@@ -85,6 +87,10 @@ function stepLabel(
   return t("Adicionar ou atualizar no CRM");
 }
 
+function revisarNoComposer(template: MessageTemplate): boolean {
+  return template.kind !== "script" && (Boolean(template.midias?.length) || !template.steps?.length);
+}
+
 function StepIcon({ type }: { type: MessageTemplateStep["action_type"] }) {
   const Icon =
     type === "image"
@@ -109,6 +115,8 @@ export function QuickRepliesPanel({
   status,
   tags,
   onClose,
+  pedidoDeRoteiro,
+  onRoteiroRevisado,
   onPrepararNoComposer,
 }: Props) {
   const t = useT();
@@ -136,12 +144,10 @@ export function QuickRepliesPanel({
   React.useEffect(() => {
     statusRef.current = status;
   }, [status]);
-  React.useEffect(
-    () => () => {
-      activeRef.current = false;
-    },
-    [],
-  );
+  React.useEffect(() => {
+    activeRef.current = true;
+    return () => { activeRef.current = false; };
+  }, []);
 
   const categories = categoryQuery.data ?? [];
   const visible = React.useMemo(() => {
@@ -172,14 +178,29 @@ export function QuickRepliesPanel({
   }
 
   function openPreview(template: MessageTemplate) {
-    if (template.midias?.length || !template.steps?.length) {
+    if (running) return;
+    if (revisarNoComposer(template)) {
       onPrepararNoComposer?.(template);
+      return;
+    }
+    if (!template.steps?.length) {
+      toast.error(t("O roteiro não tem ações cadastradas."));
       return;
     }
     setSelected(template);
     setPreview(previewFor(template));
     setExecution(null);
   }
+
+  const revisarRoteiroSolicitado = React.useEffectEvent((template: MessageTemplate) => {
+    if (running) toast.info(t("Aguarde o envio atual terminar."));
+    else openPreview(template);
+    onRoteiroRevisado?.();
+  });
+
+  React.useEffect(() => {
+    if (pedidoDeRoteiro) revisarRoteiroSolicitado(pedidoDeRoteiro);
+  }, [pedidoDeRoteiro]);
 
   async function report(executionId: string, stepId: string, body: Record<string, unknown>) {
     await apiClient.patch(
@@ -397,8 +418,12 @@ export function QuickRepliesPanel({
 
   function sendNow(template: MessageTemplate) {
     if (running) return;
-    if (template.midias?.length || !template.steps?.length) {
+    if (revisarNoComposer(template)) {
       onPrepararNoComposer?.(template);
+      return;
+    }
+    if (!template.steps?.length) {
+      toast.error(t("O roteiro não tem ações cadastradas."));
       return;
     }
     setExecution(null);
@@ -470,7 +495,7 @@ export function QuickRepliesPanel({
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
           {visible.map((template) => {
             const sending = runningTemplateId === template.id;
-            const revisarNoComposer = Boolean(template.midias?.length) || !template.steps?.length;
+            const noComposer = revisarNoComposer(template);
             return (
               <div
                 key={template.id}
@@ -479,10 +504,10 @@ export function QuickRepliesPanel({
                 role="button"
                 tabIndex={running ? -1 : 0}
                 aria-disabled={running}
-                aria-label={`${t(revisarNoComposer ? "Revisar e enviar" : "Enviar agora")}: ${template.title}`}
+                aria-label={`${t(noComposer ? "Revisar e enviar" : "Enviar agora")}: ${template.title}`}
                 onClick={() => sendNow(template)}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
+                  if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) {
                     event.preventDefault();
                     sendNow(template);
                   }
@@ -520,8 +545,8 @@ export function QuickRepliesPanel({
                   <Button
                     size="icon"
                     variant="ghost"
-                    title={t(revisarNoComposer ? "Revisar e enviar" : "Enviar agora")}
-                    aria-label={`${t(revisarNoComposer ? "Revisar e enviar" : "Enviar agora")}: ${template.title}`}
+                    title={t(noComposer ? "Revisar e enviar" : "Enviar agora")}
+                    aria-label={`${t(noComposer ? "Revisar e enviar" : "Enviar agora")}: ${template.title}`}
                     disabled={running}
                     onClick={(event) => {
                       event.stopPropagation();
@@ -548,7 +573,7 @@ export function QuickRepliesPanel({
         </div>
       </aside>
       <Dialog open={!!selected} onOpenChange={(open) => !open && !running && setSelected(null)}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
+        <DialogContent data-quick-replies-surface className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>{selected?.title}</DialogTitle>
             <DialogDescription>

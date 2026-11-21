@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
  *
  * Reusados pelo Route Handler REST e por MCP tools (S-13.03/04).
  */
+import { FILTRO_DE_CONVERSA_NAO_LIDA } from "@/lib/inbox/estado-de-leitura";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { ApiError } from "@/lib/api/types";
@@ -78,7 +79,7 @@ const SELECT_COLS = `
   id, organization_id, contact_id, channel_session_id, channel, status,
   status_changed_at, service_revision, service_closed_at, service_started_at, current_demanda_id, assigned_to_user_id, assigned_to_user_name, assignee_kind, assigned_at, last_inbound_at, awaiting_since,
   last_outbound_at, last_message_at, last_message_preview,
-  unread_count_for_assignee, is_group, group_chat_id, tags, metadata,
+  unread_count_for_assignee, marcada_como_nao_lida, is_group, group_chat_id, tags, metadata,
   snooze_until, sector_id, created_at, updated_at,
   bot_silenced_until, last_handoff_at, last_handoff_reason,
   comando_da_conversa,
@@ -367,7 +368,7 @@ export async function listConversationsHandler(
   // ⛔ Compõe sobre `query`, que JÁ tem `.eq("organization_id", ctx.organization_id)`.
   // Este handler usa o admin client, que passa por cima da RLS: esse filtro é a Única
   // barreira. Consulta nova só para os não lidos nasceria sem barreira nenhuma.
-  if (q.unread) query = query.gt("unread_count_for_assignee", 0);
+  if (q.unread) query = query.or(FILTRO_DE_CONVERSA_NAO_LIDA);
   if (q.ultima_mensagem_de) query = query.gte("last_message_at", q.ultima_mensagem_de);
   if (q.ultima_mensagem_ate) query = query.lte("last_message_at", q.ultima_mensagem_ate);
 
@@ -793,7 +794,9 @@ export async function markConversationReadHandler(
   // Marcar como não lida deve preservar a contagem se outra mensagem chegou.
   const update = supabase
     .from("conversations")
-    .update({ unread_count_for_assignee: lida ? 0 : 1 })
+    .update(lida
+      ? { unread_count_for_assignee: 0, marcada_como_nao_lida: false }
+      : { marcada_como_nao_lida: true })
     .eq("id", conversationId)
     .eq("organization_id", ctx.organization_id);
   if (!lida) update.eq("unread_count_for_assignee", 0);

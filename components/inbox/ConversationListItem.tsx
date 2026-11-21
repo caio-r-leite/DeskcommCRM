@@ -18,6 +18,7 @@ import {
   STATUS_ENCERRADOS,
 } from "@/lib/inbox/comando-da-conversa";
 import { cn } from "@/lib/utils";
+import { conversaNaoLida } from "@/lib/inbox/estado-de-leitura";
 import type { AcaoEmLote } from "@/hooks/inbox/useBulkConversations";
 import { AcoesDaConversaNaLista } from "./AcoesDaConversaNaLista";
 import type { ConversationWithContact } from "@/hooks/inbox/useConversationsRealtime";
@@ -200,6 +201,7 @@ export function ConversationListItem({
   const naFila = queuePosition !== undefined;
   const time = relativeTime(conversation.last_message_at, localeDaData);
   const unread = conversation.unread_count_for_assignee ?? 0;
+  const naoLida = conversaNaoLida(conversation);
 
 
   /**
@@ -369,7 +371,7 @@ export function ConversationListItem({
             <span
               className={cn(
                 "truncate text-sm",
-                unread > 0 ? "font-semibold text-text" : "font-medium text-text",
+                naoLida ? "font-semibold text-text" : "font-medium text-text",
                 c?.is_anonymized && "font-normal italic text-text-muted",
               )}
             >
@@ -423,7 +425,7 @@ export function ConversationListItem({
               "min-w-0 truncate text-[13px]",
               // Na aberta, `text-text`: `text-muted` sobre o `accent-soft` do
               // escuro dá 4,2:1, abaixo do AA (medido em selecionada-legivel-no-escuro.test).
-              unread > 0 || isSelected ? "text-text" : "text-text-muted",
+              naoLida || isSelected ? "text-text" : "text-text-muted",
             )}
           >
             {isAi && mostrarAutomatico ? (
@@ -431,10 +433,19 @@ export function ConversationListItem({
             ) : null}
             {truncated}
           </p>
-          {unread > 0 && (
-            <span className="inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-accent px-1.5 text-[10px] font-semibold tabular-nums text-accent-foreground">
-              {unread}
-            </span>
+          {naoLida && (
+            unread > 0 ? (
+              <span data-testid="contador-de-nao-lidas" className="inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-accent px-1.5 text-[10px] font-semibold tabular-nums text-accent-foreground">
+                {unread}
+              </span>
+            ) : (
+              <span
+                role="img"
+                aria-label={t("Remarcada como não lida")}
+                title={t("Remarcada como não lida")}
+                className="mr-1 inline-block size-2.5 shrink-0 rounded-full bg-accent"
+              />
+            )
           )}
         </div>
 
@@ -494,7 +505,7 @@ export function ConversationListItem({
       <AcoesDaConversaNaLista
         conversationId={conversation.id}
         status={conversation.status}
-        naoLida={unread > 0}
+        naoLida={naoLida}
         exemploMarcado={exemploMarcado}
         pendente={acaoPendente}
         onAcao={onAcao}

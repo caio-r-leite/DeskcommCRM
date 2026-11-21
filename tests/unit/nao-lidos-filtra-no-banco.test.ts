@@ -68,16 +68,16 @@ const emConversas = (c: Chamada[], metodo: string) =>
 describe("o filtro de não lidos vira predicado de consulta", () => {
   it("⭐ com `unread`, a consulta pede ao banco só as não lidas", async () => {
     const c = await listar({ unread: true });
-    const gts = emConversas(c, "gt");
-    expect(gts.map((x) => x.args.join(":"))).toContain("unread_count_for_assignee:0");
+    const ors = emConversas(c, "or");
+    expect(ors.map((x) => x.args.join(":"))).toContain("unread_count_for_assignee.gt.0,marcada_como_nao_lida.eq.true");
   });
 
   it("CONTROLE: sem `unread`, nenhum predicado de não lidas é emitido", async () => {
     // Sem este caso, um handler que filtrasse SEMPRE passaria no de cima — e a
     // caixa inteira passaria a esconder o que já foi lido, para todo mundo.
     const c = await listar({});
-    const gts = emConversas(c, "gt").map((x) => x.args.join(":"));
-    expect(gts).not.toContain("unread_count_for_assignee:0");
+    const ors = emConversas(c, "or").map((x) => x.args.join(":"));
+    expect(ors).not.toContain("unread_count_for_assignee.gt.0,marcada_como_nao_lida.eq.true");
   });
 
   it("⛔ o predicado COMPÕE sobre a consulta que já filtra a organização", async () => {
@@ -88,14 +88,14 @@ describe("o filtro de não lidos vira predicado de consulta", () => {
     const c = await listar({ unread: true });
     const orgs = emConversas(c, "eq").map((x) => x.args.join(":"));
     expect(orgs).toContain("organization_id:org-1");
-    // e o `gt` saiu na MESMA tabela, não numa consulta paralela
-    expect(emConversas(c, "gt").length).toBeGreaterThan(0);
+    // e o `or` saiu na MESMA tabela, não numa consulta paralela
+    expect(emConversas(c, "or").length).toBeGreaterThan(0);
   });
 
   it("combina com os demais filtros em vez de competir com eles", async () => {
     // O botão só valia para a página carregada, então não somava com aba nem canal.
     const c = await listar({ unread: true, exclude_finished: true });
-    expect(emConversas(c, "gt").length).toBeGreaterThan(0);
+    expect(emConversas(c, "or").length).toBeGreaterThan(0);
     expect(emConversas(c, "not").length + emConversas(c, "neq").length).toBeGreaterThan(0);
   });
 });

@@ -30,7 +30,7 @@ import {
 import { resolveSlash, TemplateMenu } from "@/components/inbox/composer/TemplateMenu";
 import { useAssignableMembers } from "@/hooks/inbox/useAssignableMembers";
 import { useCreateNote } from "@/hooks/inbox/useCreateNote";
-import { useGruposDeRespostas, useMessageTemplates } from "@/hooks/inbox/useMessageTemplates";
+import { useGruposDeRespostas, useMessageTemplates, type MessageTemplate } from "@/hooks/inbox/useMessageTemplates";
 import { X } from "lucide-react";
 import { toast } from "sonner";
 import { useSendMessage } from "@/hooks/inbox/useSendMessage";
@@ -106,6 +106,7 @@ function avisoDeRascunhoIndisponivel(motivo: MotivoDeRecusa, t: (texto: string) 
 
 interface Props {
   onOpenQuickReplies?: () => void;
+  onRevisarRoteiro?: (template: MessageTemplate) => void;
   quickRepliesActive?: boolean;
   assistenciaNaFicha?: boolean;
   conversationId: string;
@@ -197,6 +198,7 @@ interface Props {
 export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
   {
     onOpenQuickReplies,
+    onRevisarRoteiro,
     quickRepliesActive = false,
     assistenciaNaFicha = false,
     conversationId,
@@ -762,7 +764,8 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
     const legado = (templates.data ?? []).find((item) => item.id === template.id);
     if (legado?.kind === "script") {
       setMenuDismissed(true);
-      onOpenQuickReplies?.();
+      if (legado.steps?.length) onRevisarRoteiro?.(legado);
+      else toast.error(t("O roteiro não tem ações cadastradas."));
       return;
     }
     if ((legado?.kind === "image" || legado?.kind === "video") && !template.midias?.length) {
@@ -1430,6 +1433,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
               className="shrink-0"
               aria-label={t("Respostas rápidas")}
               aria-pressed={quickRepliesActive}
+              data-quick-replies-surface
               disabled={respostaBarrada}
               onClick={onOpenQuickReplies}
             >

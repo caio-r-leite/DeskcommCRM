@@ -1,4 +1,5 @@
 import type { InfiniteData, QueryClient } from "@tanstack/react-query";
+import { conversaNaoLida } from "./estado-de-leitura";
 import { hashKey } from "@tanstack/react-query";
 import type {
   ConversationsFilters,
@@ -189,7 +190,7 @@ export function julgarAtualizacao(
     if (atual.assigned_to_user_id !== filtros.assigned_to) return "sai";
   }
 
-  if (filtros.unread && (atual.unread_count_for_assignee ?? 0) <= 0) return "sai";
+  if (filtros.unread && !conversaNaoLida(atual)) return "sai";
   if (filtros.channel_session_id && atual.channel_session_id !== filtros.channel_session_id) {
     return "sai";
   }

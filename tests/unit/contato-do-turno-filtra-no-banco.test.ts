@@ -133,11 +133,11 @@ describe("o filtro de contato vira predicado de consulta", () => {
     expect(eqs).toContain("organization_id:org-1");
     expect(eqs).toContain(`contact_id:${CONTATO}`);
     // `status` chega como LISTA e sai por `.in` (um valor vira lista de um),
-    // e `unread` por `.gt` — são outras cadeias da MESMA query.
+    // e `unread` por `.or` — são outras cadeias da MESMA query.
     const ins = emConversas(chamadas, "in");
     expect(ins.map((x) => x.args[0])).toContain("status");
     expect(JSON.stringify(ins.find((x) => x.args[0] === "status")?.args)).toContain("open");
-    const gts = emConversas(chamadas, "gt").map((x) => x.args.join(":"));
-    expect(gts).toContain("unread_count_for_assignee:0");
+    const ors = emConversas(chamadas, "or").map((x) => x.args.join(":"));
+    expect(ors).toContain("unread_count_for_assignee.gt.0,marcada_como_nao_lida.eq.true");
   });
 });

@@ -490,6 +490,7 @@ test("sete combinações e edição de áudio no teto5 conservam bytes e snapsho
     for (const [i, c] of COMBINACOES.entries()) {
       const modelo = cadastrados[i]!;
       const botao = barra.locator(`[data-recurso-id="${modelo.id}"]`);
+      if (!(await botao.isVisible()) && await mais.count()) await mais.click();
       await expect(botao).toHaveAttribute("data-recurso-tipo", c.tipo);
       await expect(botao).toBeEnabled();
       await botao.click();

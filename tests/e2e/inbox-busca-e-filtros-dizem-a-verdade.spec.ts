@@ -313,6 +313,7 @@ async function contextoDeLayout() {
   const canalId = canal.data!.id;
   const contatos: string[] = [];
   const conversas: string[] = [];
+  const modelos: string[] = [];
 
   async function inserirConversa(nome: string, data: string) {
     const contato = await db.from("contacts")
@@ -330,12 +331,38 @@ async function contextoDeLayout() {
     return conversa.data!.id as string;
   }
 
+  async function inserirResposta(titulo: string, body: string, roteiro = false) {
+    const modelo = await db.from("message_templates").insert({
+      organization_id: org, title: titulo, body, kind: roteiro ? "script" : "text",
+      mostrar_na_barra: true,
+    }).select("id").single();
+    expect(modelo.error).toBeNull();
+    modelos.push(modelo.data!.id);
+    if (roteiro) {
+      const step = await db.from("message_template_steps").insert({
+        organization_id: org, template_id: modelo.data!.id, position: 0,
+        action_type: "text", body: "Primeira etapa de teste",
+      });
+      expect(step.error).toBeNull();
+    }
+    return modelo.data!.id as string;
+  }
+
+  async function receberMensagem(id: string) {
+    const recebido = await db.rpc("fn_mark_conversation_message", {
+      p_conv: id, p_direction: "inbound", p_preview: "Mensagem nova de teste",
+      p_at: new Date().toISOString(),
+    });
+    expect(recebido.error).toBeNull();
+  }
+
   async function limpar() {
+    if (modelos.length) await db.from("message_templates").delete().in("id", modelos).eq("organization_id", org);
     if (conversas.length) await db.from("conversations").delete().in("id", conversas).eq("organization_id", org);
     if (contatos.length) await db.from("contacts").delete().in("id", contatos).eq("organization_id", org);
     await db.from("channel_sessions").delete().eq("id", canalId).eq("organization_id", org);
   }
-  return { inserirConversa, limpar };
+  return { inserirConversa, inserirResposta, receberMensagem, limpar };
 }
 
 test("Inbox @layout: calendário aplica todos os períodos e usa a última mensagem", async ({ page }, info) => {
@@ -470,6 +497,89 @@ test("Inbox @layout: iniciar pelo Atendimento e agir no card sem selecionar em l
     await expect(page.getByRole("dialog", { name: "Nova conversa" })).toHaveCount(0);
     await iniciar.click();
     await expect(page.getByRole("dialog", { name: "Nova conversa" })).toBeVisible();
+  } finally {
+    await limpar();
+  }
+});
+
+test("Inbox @atalhos: a barra revisa o roteiro certo e o painel recolhe fora", async ({ page }, info) => {
+  test.setTimeout(120_000);
+  const { inserirConversa, inserirResposta, limpar } = await contextoDeLayout();
+  try {
+    const id = await inserirConversa("Contato para testar atalhos", new Date().toISOString());
+    const roteiro = await inserirResposta("Roteiro de teste em destaque", "", true);
+    const texto = await inserirResposta("Resposta textual de teste", "Texto preparado, sem envio.");
+    await page.goto(`/app/inbox?filter=all&id=${id}`);
+    const barra = page.getByRole("toolbar", { name: "Respostas rápidas" });
+    const campo = page.getByLabel("Mensagem", { exact: true });
+    const dock = page.getByTestId("quick-replies-dock");
+    const envios: string[] = [];
+    page.on("request", (r) => {
+      if (r.method() === "POST" && /\/api\/v1\/(messages|message-template-executions)$/.test(r.url())) {
+        envios.push(r.url());
+      }
+    });
+
+    await barra.locator(`[data-recurso-id="${roteiro}"]`).click();
+    const previa = page.getByRole("dialog", { name: "Roteiro de teste em destaque" });
+    await expect(previa).toBeVisible();
+    await expect(previa.locator("textarea")).toHaveValue("Primeira etapa de teste");
+    await previa.locator("textarea").click();
+    await expect(previa).toBeVisible();
+    await page.screenshot({ path: info.outputPath("revisao-roteiro.png") });
+    await page.keyboard.press("Escape");
+    await expect(previa).toHaveCount(0);
+
+    await dock.hover();
+    await dock.getByPlaceholder("Pesquisar resposta rápida").click();
+    await expect(dock).toHaveAttribute("data-state", "aberto");
+    await campo.click();
+    await expect(dock).toHaveAttribute("data-state", "recolhido");
+    await expect(campo).toBeFocused();
+
+    await dock.hover();
+    await dock.getByPlaceholder("Pesquisar resposta rápida").click();
+    await expect(dock).toHaveAttribute("data-state", "aberto");
+    await page.getByText("Nenhuma mensagem nesta conversa.", { exact: true }).click();
+    await expect(dock).toHaveAttribute("data-state", "recolhido");
+    await barra.locator(`[data-recurso-id="${texto}"]`).click();
+    await expect(campo).toHaveValue("Texto preparado, sem envio.");
+    expect(envios).toEqual([]);
+  } finally {
+    await limpar();
+  }
+});
+
+test("Inbox @atalhos: bolinha manual persiste e novas mensagens mostram o número real", async ({ page }, info) => {
+  test.setTimeout(120_000);
+  const { inserirConversa, receberMensagem, limpar } = await contextoDeLayout();
+  try {
+    const nome = "Conversa com marca manual";
+    const id = await inserirConversa(nome, new Date().toISOString());
+    await page.goto("/app/inbox?filter=all");
+    await page.getByLabel(CAMPO_DE_BUSCA).fill(nome);
+    const linha = page.locator(`[data-conversation-id="${id}"]`).locator("..");
+    const manual = linha.getByRole("img", { name: "Remarcada como não lida" });
+    const contador = linha.getByTestId("contador-de-nao-lidas");
+
+    await linha.getByRole("button", { name: "Marcar como não lida", exact: true }).click();
+    await expect(manual).toBeVisible();
+    await expect(manual).toHaveText("");
+    await expect(contador).toHaveCount(0);
+    await page.getByRole("button", { name: "Não lidos", exact: true }).click();
+    await expect(manual).toBeVisible();
+    await page.reload();
+    await page.getByLabel(CAMPO_DE_BUSCA).fill(nome);
+    await expect(manual).toBeVisible();
+    await page.screenshot({ path: info.outputPath("nao-lida-manual.png") });
+
+    await receberMensagem(id);
+    await receberMensagem(id);
+    await expect(contador).toHaveText("2");
+    await expect(manual).toHaveCount(0);
+
+    await linha.getByRole("button", { name: "Marcar como lida", exact: true }).click();
+    await expect(linha).toHaveCount(0);
   } finally {
     await limpar();
   }

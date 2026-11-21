@@ -6800,6 +6800,7 @@ export type Database = {
           last_message_at: string | null;
           last_message_preview: string | null;
           last_outbound_at: string | null;
+          marcada_como_nao_lida: boolean;
           metadata: NonNullable<Json>;
           organization_id: string;
           provider_conversation_id: string | null;
@@ -6851,6 +6852,7 @@ export type Database = {
           last_message_at?: string | null;
           last_message_preview?: string | null;
           last_outbound_at?: string | null;
+          marcada_como_nao_lida?: boolean;
           metadata?: NonNullable<Json>;
           organization_id: string;
           provider_conversation_id?: string | null;
@@ -6898,6 +6900,7 @@ export type Database = {
           last_message_at?: string | null;
           last_message_preview?: string | null;
           last_outbound_at?: string | null;
+          marcada_como_nao_lida?: boolean;
           metadata?: NonNullable<Json>;
           organization_id?: string;
           provider_conversation_id?: string | null;

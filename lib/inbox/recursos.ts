@@ -60,6 +60,8 @@ export interface Recurso {
   id: string;
   title: string;
   body: string;
+  kind?: "text" | "image" | "video" | "script";
+  steps?: readonly unknown[] | null;
   midias?: readonly MidiaDeTemplate[] | null;
   /**
    * A MARCAÇÃO "Mostrar na barra do Inbox" (#3282) — `message_templates.mostrar_na_barra`.

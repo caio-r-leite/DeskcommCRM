@@ -175,6 +175,19 @@ export function BarraDeRecursos({
     setAberta(lerBarraAberta(guarda, chave));
   }, [guarda, chave]);
 
+  useEffect(() => {
+    if (!aberta) return;
+    function recolherAoClicarFora(evento: PointerEvent) {
+      if (evento.target instanceof Element && evento.target.closest("[data-barra-de-respostas]")) {
+        return;
+      }
+      setAberta(false);
+      gravarBarraAberta(guarda, chave, false);
+    }
+    document.addEventListener("pointerdown", recolherAoClicarFora, true);
+    return () => document.removeEventListener("pointerdown", recolherAoClicarFora, true);
+  }, [aberta, guarda, chave]);
+
   const daBarra = recursosDaBarra(recursos);
   if (daBarra.length === 0) return null;
 
@@ -222,6 +235,7 @@ export function BarraDeRecursos({
     return (
       <div
         data-testid="barra-de-recursos"
+        data-barra-de-respostas
         role="toolbar"
         aria-label={t("Respostas rápidas")}
         className={CLASSE_DA_BARRA}
@@ -261,6 +275,7 @@ export function BarraDeRecursos({
   return (
     <div
       data-testid="barra-de-recursos"
+      data-barra-de-respostas
       role="toolbar"
       aria-label={t("Respostas rápidas")}
       className={CLASSE_DA_BARRA}
@@ -333,6 +348,7 @@ function GrupoEmPopup({
         </button>
       </PopoverTrigger>
       <PopoverContent
+        data-barra-de-respostas
         align="start"
         side="top"
         sideOffset={6}
@@ -389,7 +405,11 @@ function BotaoDeRecurso({
   const leitura = lerRespostaRapidaGravada(recurso);
   // O bloqueio do compositor e a invalidade do conteúdo são informações
   // diferentes: quando coexistem, nenhuma pode esconder a outra.
-  const motivos = [dica, leitura.ok ? undefined : t(leitura.motivo)].filter(
+  const roteiro = recurso.kind === "script";
+  const motivoDoConteudo = roteiro
+    ? (recurso.steps?.length ? undefined : t("O roteiro não tem ações cadastradas."))
+    : (leitura.ok ? undefined : t(leitura.motivo));
+  const motivos = [dica, motivoDoConteudo].filter(
     (motivo): motivo is string => motivo !== undefined,
   );
   return (
@@ -397,16 +417,16 @@ function BotaoDeRecurso({
       type="button"
       disabled={disabled}
       data-recurso-id={recurso.id}
-      data-recurso-tipo={leitura.ok ? leitura.tipo : "invalida"}
+      data-recurso-tipo={roteiro ? "roteiro" : leitura.ok ? leitura.tipo : "invalida"}
       onClick={() => onEscolher(recurso)}
-      title={motivos.length ? motivos.join(" — ") : t("Prepara no compositor — você revisa e envia")}
+      title={motivos.length ? motivos.join(" — ") : roteiro ? t("Revisar e enviar") : t("Prepara no compositor — você revisa e envia")}
       className={
         bloco
           ? "flex min-h-11 w-full items-center rounded-md px-2 py-1.5 text-left text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50 lg:min-h-0"
           : "shrink-0 rounded-full border border-border bg-muted/60 px-2.5 py-1 text-xs font-medium transition-colors hover:bg-muted disabled:opacity-50"
       }
     >
-      {rotuloDoBotao(leitura, recurso.title)}
+      {roteiro ? recurso.title : rotuloDoBotao(leitura, recurso.title)}
     </button>
   );
 }

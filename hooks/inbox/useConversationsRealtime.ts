@@ -106,8 +106,7 @@ export interface ConversationsFilters {
   comando?: readonly ComandoDoBanco[];
   search?: string;
   /**
-   * Só as que têm mensagem não lida para o dono. Vai ao BANCO — migration nenhuma,
-   * a coluna `unread_count_for_assignee` já existe.
+   * Só as conversas com mensagens novas ou marcadas manualmente como não lidas.
    */
   unread?: boolean;
   channel_session_id?: string;
